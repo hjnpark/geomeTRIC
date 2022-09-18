@@ -3,10 +3,6 @@ from __future__ import division
 
 import argparse
 import os
-import shutil
-import time
-
-import itertools
 import numpy as np
 from scipy.linalg import sqrtm
 from .prepare import get_molecule_engine
@@ -14,13 +10,6 @@ from .optimize import Optimize
 from .params import OptParams, parse_optimizer_args
 from .step import get_delta_prime_trm, brent_wiki, trust_step, calc_drms_dmax
 from .engine import (
-    set_tcenv,
-    load_tcin,
-    TeraChem,
-    Psi4,
-    QChem,
-    QCEngineAPI,
-    Gromacs,
     Blank,
 )
 from .internal import *
@@ -28,8 +17,6 @@ from .nifty import (
     flat,
     row,
     col,
-    pmat2d,
-    printcool,
     createWorkQueue,
     getWorkQueue,
     wq_wait,
@@ -175,9 +162,6 @@ class Structure(object):
         self.grad_cartesian = None
         # The gradient in internal coordinates
         self.grad_internal = None
-        self.qcfserver = False
-        if type(self.engine).__name__ == "QCEngineAPI" and self.engine.client:
-            self.qcfserver = True
 
     def clearCalcs(self, clearEngine=True):
         self.energy = None
