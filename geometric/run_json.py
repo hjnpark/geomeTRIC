@@ -251,30 +251,6 @@ def geometric_run_json(in_json_dict):
         if Cons is None:
             # Run a standard geometry optimization
             geometric.optimize.Optimize(coords, M, IC, engine, None, params)
-        #elif IRC:
-        #    print ("The IRC method will be performed.")
-
-        #    #params.tmax = params.trust*1.01
-        #    params.xyzout = "qcai_IRC_tmp.xyz"
-        #   # dirname = 'qcai_IRC.tmp'
-        #   # if not os.path.exists(dirname):
-        #   #     os.mkdir(dirname)
-        #    if params.prefix is None:
-        #        tmpdir = "qcai_irc.tmp"
-        #    else:
-        #        tmpdir = params.prefix
-        #    if not os.path.exists(tmpdir):
-        #        os.mkdir(tmpdir)
-        #    fwd, disp= geometric.irc.irc(M, engine, coords, IC, tmpdir, params, direction = -1)
-        #    print('Forward IRC is done')
-        #    fwd.write(os.path.join(tmpdir,'forward.xyz'))
-        #    bwd, disp= geometric.irc.irc(M, engine, coords, IC, tmpdir, params, initial_disp=disp, direction = 1)
-        #    print('\nBackward IRC is done')
-        #    bwd.write(os.path.join(tmpdir,'backward.xyz'))
-        #    final = bwd[::-1] + fwd[1:]
-        #    final.write(os.path.join(tmpdir,'IRC_%.2f.xyz' %params.trust))
-        #    print('\n IRC calculations are done. \'IRC_%.2f.xyz\' was generated.' %params.trust)
-
         else:
             # Run a constrained geometry optimization
             if isinstance(IC, (geometric.internal.CartesianCoordinates,

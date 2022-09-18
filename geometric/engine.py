@@ -1478,11 +1478,10 @@ class Molpro(Engine): # pragma: no cover
         return False
 
 class QCEngineAPI(Engine):
-    def __init__(self, schema, program, client=False):
-        self.client = client
+    def __init__(self, schema, program):
+
         self.schema = schema
         self.program = program
-        self.schema["driver"] = "gradient"
 
         self.M = Molecule()
         self.M.elem = list(schema["molecule"]["symbols"])
@@ -1502,18 +1501,16 @@ class QCEngineAPI(Engine):
         # one additional attribute to store each schema on the opt trajectory
         self.schema_traj = []
 
-    def calc_new(self, coords, dirname):
-        try:
-            import qcengine
-        except ImportError:
-            raise ImportError("QCEngine computation object requires the 'qcengine' package. Please pip or conda install 'qcengine'.")
+    def calc_new(self, coords, dirname, driver):
+        import qcengine
         new_schema = deepcopy(self.schema)
         new_schema["molecule"]["geometry"] = coords.tolist()
+        new_schema["driver"] = driver
         new_schema.pop("program", None)
         ret = qcengine.compute(new_schema, self.program, return_dict=True)
         # store the schema_traj for run_json to pick up
         self.schema_traj.append(ret)
-        if ret["success"] is False:
+        if not ret["success"]:
             raise QCEngineAPIEngineError("QCEngineAPI computation did not execute correctly. Message: " + ret["error"]["error_message"])
         # Unpack the energy and gradient
         energy = ret["properties"]["return_energy"]
@@ -1521,84 +1518,10 @@ class QCEngineAPI(Engine):
         hessian = None
         return {'energy':energy, 'gradient':gradient, 'hessian':gradient}
 
-    def calc_qcf(self, coords):
-        """
-        This function will submit a job to qcfractal server and return a unique ID. 
-        """
-        new_schema = deepcopy(self.schema)
-        new_schema["molecule"]["geometry"] = coords.tolist()
-        new_schema.pop("program", None)
-        driver = new_schema['driver']
-        response = self.client.add_compute(program = self.program, method = new_schema['model']['method'], basis = new_schema['model']['basis'], driver = driver, molecule = new_schema['molecule'])
-        return response.ids[0]
-
-    def wait_qcf(self, ids):
-        """
-        This function will wait and check qcfractal calculations.
-        ----------------
-        ids : list
-            list of submitted job ids. 
-        """
-        import time
-        subs=len(ids) #Number of submissions
-        cycle = 0
-        resubmit = 0
-        while True:    
-            complete = 0
-            incomplete = 0
-            error = 0
-            if cycle > 5000:
-                raise RuntimeError("Stuck in a while loop. Iterated %i times" %cycle)
-            if resubmit > 50 or complete > subs:
-                raise QCEngineAPIEngineError("SCF convergence failure or wait_qcf function error")
-            for i in ids:
-                record = self.client.query_results(id=i)[0]
-                status = record.status.split(".")[-1] 
-                if status == "COMPLETE":
-                    complete += 1
-
-                elif status == "INCOMPLETE":
-                    incomplete += 1
-
-                elif status == "ERROR":
-                    if error == 0:
-                        print("Error detected")
-                    res = self.client.modify_tasks('restart', base_result=i)
-                    error += 1
-                    resubmit += 1
-                else:
-                    incomplete += 1
-
-            if complete == subs:
-                break
-            else:
-                cycle += 1 
-            waittime = (incomplete+error)*10
-            time.sleep(waittime)
-
-    def read_qcf(self, ids):
-        """
-        This function will get energy and gradient.
-        -----------------
-        ids : int
-            id for a submitted (completed) job 
-        """
-        record = self.client.query_results(id = ids)[0]
-        energy = record.properties.return_energy
-        gradient = np.array(record.return_result, dtype=np.float64).ravel()
-        Hessian = None 
-        return {'energy':energy, 'gradient':gradient, 'Hessian': gradient}
-
-    def calc(self, coords, dirname, **kwargs):
+    def calc(self, coords, dirname, driver="gradient", **kwargs):
         # overwrites the calc method of base class to skip caching and creating folders
-        # **kwargs: for throwing away other arguments such as read_data and copyfiles.
-        if not self.client:
-            result = self.calc_new(coords, dirname)
-        else:
-            res = self.calc_qcf(coords)
-            self.wait_qcf([res])
-            result = self.read_qcf(res)
-        return result
+        # **kwargs: for throwing away other arguments such as read_data and copy files.
+        return self.calc_new(coords, dirname, driver)
 
     def detect_dft(self):
         return any([i.lower() in self.schema["model"]["method"].lower() for i in dft_strings])

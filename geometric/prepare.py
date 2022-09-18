@@ -45,7 +45,6 @@ import os
 from .errors import EngineError
 from .internal import Distance, Angle, Dihedral, CartesianX, CartesianY, CartesianZ, TranslationX, TranslationY, TranslationZ, RotationA, RotationB, RotationC
 from .engine import set_tcenv, load_tcin, TeraChem, ConicalIntersection, Psi4, QChem, Gromacs, Molpro, OpenMM, QCEngineAPI, Gaussian
-from .rotate import calc_fac_dfac
 from .molecule import Molecule, Elements
 from .nifty import logger, isint, uncommadash, bohr2ang, ang2bohr
 from .rotate import calc_fac_dfac
@@ -265,16 +264,14 @@ def get_molecule_engine(**kwargs):
             engine.load_gaussian_input(inputf)
         elif engine_str == 'qcengine':
             logger.info("QCEngine selected.\n")
-            schema = kwargs.get('qcschema', False)
-            client = kwargs.get('client', False)
-            if schema is False:
+            schema = kwargs.get('qcschema', None)
+            if schema is None:
                 raise RuntimeError("QCEngineAPI option requires a QCSchema")
-            if client:
-                print("QCFractal client:", client)
-            program = kwargs.get('qce_program', False)
-            if program is False:
+    
+            program = kwargs.get('qce_program', None)
+            if program is None:
                 raise RuntimeError("QCEngineAPI option requires a qce_program option")
-            engine = QCEngineAPI(schema, program, client)
+            engine = QCEngineAPI(schema, program)
             M = engine.M
         else:
             raise RuntimeError("Failed to create an engine object, this might be a bug in get_molecule_engine")
