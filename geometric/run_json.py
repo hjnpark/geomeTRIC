@@ -40,9 +40,7 @@ import geometric
 import json
 import traceback
 import pkg_resources
-import argparse
-import os
-
+import tempfile
 try:
     from cStringIO import StringIO      # Python 2
 except ImportError:
@@ -51,12 +49,13 @@ except ImportError:
 import logging
 from .nifty import logger, RawStreamHandler, commadash
 
+
 def parse_input_json_dict(in_json_dict):
     """
     Parse an input json dictionary into options, example:
     in_json_dict = {
         "schema_name": "qc_schema_optimization_input",
-        "schema_version": 1,
+        "schema_version", 1,
         "keywords": {
             "coordsys": "tric",
             "conv": 1.e-7
@@ -83,6 +82,7 @@ def parse_input_json_dict(in_json_dict):
         "program": "rdkit"
     }
     """
+
     in_json_dict = copy.deepcopy(in_json_dict)
     input_opts = in_json_dict['keywords']
     input_specification = in_json_dict['input_specification']
@@ -184,13 +184,6 @@ def make_constraints_string(constraints_dict):
 
     return "\n".join(constraints_repr)
 
-def parse_key(key_dict):
-    args_list = []
-    for key, val in key_dict.items():
-        if key != "client":
-            arg = "--" + key 
-            args_list.extend([arg, str(val)])
-    return args_list
 
 def geometric_run_json(in_json_dict):
     """ Take a input dictionary loaded from json, and return an output dictionary for json """
@@ -206,8 +199,10 @@ def geometric_run_json(in_json_dict):
 
     input_opts = parse_input_json_dict(in_json_dict)
     M, engine = geometric.optimize.get_molecule_engine(**input_opts)
+
     # Get initial coordinates in bohr
     coords = M.xyzs[0].flatten() * geometric.nifty.ang2bohr
+
     # Read in the constraints
     constraints_dict = input_opts.get('constraints', {})
     if "scan" in constraints_dict:
@@ -244,13 +239,18 @@ def geometric_run_json(in_json_dict):
         logger.info("%i internal coordinates being used (instead of %i Cartesians)\n" % (len(IC.Internals), 3 * M.na))
     logger.info(IC)
     logger.info("\n")
+
     params = geometric.optimize.OptParams(**input_opts)
-    params.xyzout = "_optim.xyz"
+    dirname = tempfile.mkdtemp()
+
+    if params.transition and type(engine).__name__ == "QCEngineAPI":
+        params.hess_data = engine.calc(coords, None, "hessian")["hessian"].reshape(len(coords), len(coords))
+
     try:
         # Run the optimization
         if Cons is None:
             # Run a standard geometry optimization
-            geometric.optimize.Optimize(coords, M, IC, engine, None, params)
+            geometric.optimize.Optimize(coords, M, IC, engine, dirname, params)
         else:
             # Run a constrained geometry optimization
             if isinstance(IC, (geometric.internal.CartesianCoordinates,
@@ -261,7 +261,7 @@ def geometric_run_json(in_json_dict):
                     logger.info("---=== Scan %i/%i : Constrained Optimization ===---\n" % (ic + 1, len(CVals)))
                 IC = CoordClass(M, build=True, connect=connect, addcart=addcart, constraints=Cons, cvals=CVal)
                 IC.printConstraints(coords, thre=-1)
-                geometric.optimize.Optimize(coords, M, IC, engine, None, params, print_info = (ic==0))
+                geometric.optimize.Optimize(coords, M, IC, engine, dirname, params, print_info = (ic==0))
 
         out_json_dict = get_output_json_dict(in_json_dict, engine.schema_traj)
         out_json_dict["success"] = True
