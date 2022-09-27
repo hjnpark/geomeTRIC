@@ -189,6 +189,7 @@ def geometric_run_json(in_json_dict):
     """ Take a input dictionary loaded from json, and return an output dictionary for json """
 
     # Default logger configuration (prevents extra newline from being printed)
+    import numpy as np
     logIni = pkg_resources.resource_filename(geometric.optimize.__name__, 'config/logJson.ini')
     import logging.config
     logging.config.fileConfig(logIni,disable_existing_loggers=False)
@@ -198,6 +199,8 @@ def geometric_run_json(in_json_dict):
     logger.addHandler(log_stream)
 
     input_opts = parse_input_json_dict(in_json_dict)
+    hess = input_opts.pop('hessian', None)
+
     M, engine = geometric.optimize.get_molecule_engine(**input_opts)
 
     # Get initial coordinates in bohr
@@ -243,10 +246,15 @@ def geometric_run_json(in_json_dict):
     params = geometric.optimize.OptParams(**input_opts)
     dirname = tempfile.mkdtemp()
 
+    if hess is not None:
+        n = len(coords)
+        params.hess_data = np.array(hess).reshape(n, n)
+
     try:
         # Run the optimization
         if Cons is None:
             # Run a standard geometry optimization
+            params.xyzout = "qce_optim.xyz"
             geometric.optimize.Optimize(coords, M, IC, engine, dirname, params)
         else:
             # Run a constrained geometry optimization
