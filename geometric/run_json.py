@@ -243,9 +243,6 @@ def geometric_run_json(in_json_dict):
     params = geometric.optimize.OptParams(**input_opts)
     dirname = tempfile.mkdtemp()
 
-    if params.transition and type(engine).__name__ == "QCEngineAPI":
-        params.hess_data = engine.calc(coords, None, "hessian")["hessian"].reshape(len(coords), len(coords))
-
     try:
         # Run the optimization
         if Cons is None:

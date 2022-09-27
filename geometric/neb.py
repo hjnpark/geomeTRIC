@@ -2864,16 +2864,12 @@ def prepare(prev):
     old_attrs = check_attr(chain)
 
     temp = {
-        #"Y_prev": Y.tolist(),
         "GW": GW.tolist(),
         "GP": GP.tolist(),
         "HW": HW.tolist(),
         "HP": HP.tolist(),
-        #"HP_guess": HP.tolist(),
-        #"HW_guess": HW.tolist(),
         "new_attrs": new_attrs,
         "old_attrs": old_attrs,
-        "old_bandE": chain.TotBandEnergy,
         "trust": trust,
         "expect": expect,
         "expectG": expectG.tolist(),
@@ -2922,7 +2918,7 @@ def add_attr(chain, attrs):
     if attrs.get("climbSet", False):
         chain.climbSet = True
         chain.climbers = attrs.get("climbers")
-        # chain.locks = attrs.get('locks')
+        chain.locks = attrs.get('locks')
     return chain
 
 
@@ -2940,17 +2936,14 @@ def check_attr(chain):
     if chain.climbSet:
         attrs["climbSet"] = True
         attrs["climbers"] = [int(i) for i in chain.climbers]
-        # attrs['locks'] = chain.locks
-        # print(chain.locks)
+        attrs['locks'] = chain.locks
     attrs["TotBandEnergy"] = chain.TotBandEnergy
 
     return attrs
 
 def dict_to_binary(the_dict):
-    import json
     import msgpack
     bin = msgpack.dumps(the_dict)
-    #bin = ' '.join(format(ord(letter), 'b') for letter in str)
     return bin
 
 def nextchain(prev):
@@ -3040,26 +3033,12 @@ def nextchain(prev):
     old_chain = add_attr(old_chain, prev.get("old_attrs"))
     chain.ComputeGuessHessian(full=False, blank=isinstance(engine, Blank))
     old_chain.ComputeGuessHessian(full=False, blank=isinstance(engine, Blank))
-    #old_chain.TotBandEnergy = prev.get("old_bandE")
-    #chain.guess_hessian_working = prev.pop("HW_guess")
-    #chain.guess_hessian_plain = prev.pop("HP_guess")
     GW = np.array(prev.get("GW"))
     GP = np.array(prev.get("GP"))
     GW_prev = np.array(prev.get("GW_prev", GW.copy()))
     GP_prev = np.array(prev.get("GP_prev", GP.copy()))
-    #print('GW GP from dict', GW, GP)
-    #print('GW GP previous from dict', GW_prev, GP_prev)
 
     chain.ComputeChain(result=result)
-    #print('GW GP from chain', GW, GP)
-    #old_chain.ComputeChain(result=prev.get('result'), qcf=True)
-    #GP_prev = old_chain.get_global_grad("total", "working")#prev.get("GP_prev", GP.copy())
-    #GW_prev = old_chain.get_global_grad("total", "plain")#prev.get("GW_prev", GW.copy())
-    #print('GW GP previous from chain', GW_prev, GP_rev)
-    #print(np.linalg.norm(GW_d - GW))
-    #print(np.linalg.norm(GP_d - GP))
-    #print(np.linalg.norm(GW_prev_d - GW_prev))
-    #print(np.linalg.norm(GP_prev_d - GP_prev))
 
     chain, Y, GW, GP, HW, HP, c_hist, respaced, Quality = compare(
         old_chain,
@@ -3110,8 +3089,6 @@ def nextchain(prev):
         old_attrs = check_attr(old_chain)
         newcoords = chaintocoords(chain)
         temp = {
-            #"Y": Y.tolist(),
-            #"Y_prev": Y_prev.tolist(),
             "GW": GW.tolist(),
             "GW_prev": GW_prev.tolist(),
             "GP": GP.tolist(),
@@ -3120,7 +3097,6 @@ def nextchain(prev):
             "HP": HP.tolist(),
             "new_attrs": new_attrs,
             "old_attrs": old_attrs,
-            #"old_bandE": old_chain.TotBandEnergy,
             "expect": expect,
             "expectG": expectG.tolist(),
             "respaced": respaced,
@@ -3192,15 +3168,12 @@ def nextchain(prev):
         newcoords = chaintocoords(chain)
         # Here GW, GP and their previous values should be same.
         temp = {
-            #"Y": Y,
-            #"Y_prev": Y_prev,
             "GW": GW.tolist(),
             "GW_prev": GW_prev.tolist(),
             "GP": GP.tolist(),
             "GP_prev": GP_prev.tolist(),
             "new_attrs": new_attrs,
             "old_attrs": old_attrs,
-            #"old_bandE": old_chain.TotBandEnergy,
             "trust": trust,
             "expect": expect,
             "expectG": expectG.tolist(),
@@ -3260,15 +3233,12 @@ def nextchain(prev):
     new_attrs = check_attr(chain)
     old_attrs = check_attr(old_chain)
     temp = {
-        #"Y": Y.tolist(),
-        #"Y_prev": Y_prev.tolist(),
         "GW": GW.tolist(),
         "GW_prev": GW_prev.tolist(),
         "GP": GP.tolist(),
         "GP_prev": GP_prev.tolist(),
         "HW": HW.tolist(),
         "HP": HP.tolist(),
-        #"old_bandE": old_chain.TotBandEnergy,
         "new_attrs": new_attrs,
         "old_attrs": old_attrs,
         "trust": trust,

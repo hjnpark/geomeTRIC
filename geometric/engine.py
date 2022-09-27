@@ -400,27 +400,10 @@ class TeraChem(Engine):
         else:
             self.initguess_mode = 'none'
             self.initguess_files = []
-    
-        self.nebtcguess = False
-        if 'nebtcguess' in self.tcin: #HP: Trying to make nebtcguess work
-            import itertools
-            self.nebtcguess = True
-            self.initguess_mode = 'nebtcguess'
-            tcguess_names= self.tcin.pop('nebtcguess')
-            if self.unrestricted:
-                self.initnebguess_files = [['ca%i' %(i+1), 'cb%i' %(i+1)] for i in range(len(tcguess_names)//2)]
-            else:
-                self.initnebguess_files = ['c%i' %(i+1) for i in range(len(tcguess_names))]
-
-            for f in itertools.chain.from_iterable(self.initnebguess_files):
-                if not os.path.exists(f):
-                     raise TeraChemEngineError('%s guess file is missing' % f)
-
         # Check that all starting guess files exist
         for f in self.initguess_files:
             if not os.path.exists(f):
                 raise TeraChemEngineError('%s guess file is missing' % f)
-
         # Management of QM/MM: Read qmindices and 
         # store locations of prmtop and qmindices files,
         self.qmmm = 'qmindices' in tcin
@@ -491,8 +474,6 @@ class TeraChem(Engine):
             # If scratch files from previous calc do not exist, then copy initial guess files
             for f in self.initguess_files:
                 if os.path.exists(f):
-                    if not os.path.exists(dirname):
-                        os.makedirs(dirname)
                     shutil.copy2(f, os.path.join(dirname, f))
                 else:
                     raise TeraChemEngineError("%s guess file is missing and this code shouldn't be called" % f)
@@ -500,10 +481,7 @@ class TeraChem(Engine):
                 self.tcin['casguess' if self.casscf else 'guess'] = ' '.join(self.initguess_files)
                 if self.casscf: self.tcin['scf'] = 'diis'
             elif self.initguess_mode != 'none':
-                if self.nebtcguess:
-                    self.tcin['guess'] = ' '.join(self.initguess_files)
-                else:
-                    self.tcin['guess'] = ' '.join([self.initguess_mode] + self.initguess_files)
+                self.tcin['guess'] = ' '.join([self.initguess_mode] + self.initguess_files)
             copied_files = self.initguess_files[:]
         return copied_files
 
@@ -540,47 +518,6 @@ class TeraChem(Engine):
             self.M_full[0].write(os.path.join(dirname, start_xyz), ftype='inpcrd')
         else:
             self.M[0].write(os.path.join(dirname, start_xyz))
-        # Run TeraChem
-        subprocess.check_call('terachem run.in > run.out', cwd=dirname, shell=True)
-        # Extract energy and gradient
-        result = self.read_result(dirname)
-
-        if self.nebtcguess:
-            nebdir = dirname+".guess0"
-            if os.path.exists(nebdir):
-                shutil.rmtree(nebdir)
-            shutil.move(dirname, nebdir)
-            results = [result]
-            energies = [result['energy']]
-            for i, MOs in enumerate(self.initnebguess_files):
-                nebdir = dirname+".guess%i" %(i+1) 
-                self.initguess_files = MOs
-                self.copy_guess_files(nebdir)
-                edit_tcin(fout="%s/run.in" % nebdir, options=self.tcin)
-                if self.qmmm:
-                    # Copy QMMM files to the correct locations and set positions in inpcrd/rst7 file
-                    shutil.copy2(self.qmindices_name, nebdir)
-                    shutil.copy2(self.prmtop_name, nebdir)
-                    self.M_full.xyzs[0][self.qmindices, :] = self.M.xyzs[0]
-                    self.M_full[0].write(os.path.join(nebdir, start_xyz), ftype='inpcrd')
-                else:
-                    self.M[0].write(os.path.join(nebdir, start_xyz))
-                subprocess.check_call('terachem run.in > run.out', cwd=nebdir, shell=True)
-                temp_result = self.read_result(nebdir)
-                results.append(temp_result)
-                energies.append(temp_result['energy'])
-            min_e = np.argmin(np.array(energies))
-            shutil.copytree(dirname+".guess%i"%min_e, dirname)
-            result = results[min_e]   
-
-        return result
-
-    def calc_wq_new(self, coords, dirname):
-        # Set up Work Queue object
-        wq = getWorkQueue()
-        scrdir = os.path.join(dirname, self.scr)
-        if not os.path.exists(dirname): os.makedirs(dirname)
-        if not os.path.exists(scrdir): os.makedirs(scrdir)
         # Run TeraChem
         subprocess.check_call('terachem run.in > run.out', cwd=dirname, shell=True)
         # Extract energy and gradient
@@ -642,7 +579,7 @@ class TeraChem(Engine):
     def number_output(self, dirname, calcNum):
         if not os.path.exists(os.path.join(dirname, 'run.out')):
             raise RuntimeError('run.out does not exist')
-        shutil.copy2(os.path.join(dirname,'start.xyz'), os.path.join(dirname,'start_%03i.xyz' % calcNum))
+        shutil.copy2(os.path.join(dirname,start_xyz), os.path.join(dirname,'start_%03i.%s' % (calcNum, os.path.splitext(start_xyz)[1])))
         shutil.copy2(os.path.join(dirname,'run.out'), os.path.join(dirname,'run_%03i.out' % calcNum))
 
     def read_result(self, dirname, check_coord=None):
@@ -1017,10 +954,6 @@ class Psi4(Engine):
                     # parse the xyz format
                     elems.append(ls[0])
                     coords.append(ls[1:4])
-                elif len(ls) == 2:
-                    charge = int(ls[0]) 
-                    mult = int(ls[-1])
-                    psi4_temp.append(line)
                 elif '--' in line:
                     fragn.append(len(elems))
                 elif 'symmetry' in line:
@@ -1053,8 +986,6 @@ class Psi4(Engine):
         self.M = Molecule()
         self.M.elem = elems
         self.M.xyzs = [np.array(coords, dtype=np.float64)]
-        self.M.charge = charge
-        self.M.mult = mult
         self.psi4_temp = psi4_temp
         self.fragn = fragn
 
@@ -1069,7 +1000,7 @@ class Psi4(Engine):
                     for i, (e, c) in enumerate(zip(self.M.elem, self.M.xyzs[0])):
                         if i in self.fragn:
                             outfile.write('--\n')
-                        outfile.write("%-7s %13.8f %13.8f %13.8f\n" % (e, c[0], c[1], c[2]))
+                        outfile.write("%-7s %13.7f %13.7f %13.7f\n" % (e, c[0], c[1], c[2]))
                 else:
                     outfile.write(line)
         try:
@@ -1479,14 +1410,17 @@ class Molpro(Engine): # pragma: no cover
 
 class QCEngineAPI(Engine):
     def __init__(self, schema, program):
+        try:
+            import qcengine
+        except ImportError:
+            raise ImportError("QCEngine computation object requires the 'qcengine' package. Please pip or conda install 'qcengine'.")
 
         self.schema = schema
         self.program = program
+        self.schema["driver"] = "gradient"
 
         self.M = Molecule()
         self.M.elem = list(schema["molecule"]["symbols"])
-        self.M.charge = schema["molecule"]["molecular_charge"]
-        self.M.mult = schema["molecule"]["molecular_multiplicity"]
 
         # Geometry in (-1, 3) array in angstroms
         geom = np.array(schema["molecule"]["geometry"], dtype=np.float64).reshape(-1, 3) * bohr2ang
@@ -1501,27 +1435,25 @@ class QCEngineAPI(Engine):
         # one additional attribute to store each schema on the opt trajectory
         self.schema_traj = []
 
-    def calc_new(self, coords, dirname, driver):
+    def calc_new(self, coords, dirname):
         import qcengine
         new_schema = deepcopy(self.schema)
         new_schema["molecule"]["geometry"] = coords.tolist()
-        new_schema["driver"] = driver
         new_schema.pop("program", None)
         ret = qcengine.compute(new_schema, self.program, return_dict=True)
         # store the schema_traj for run_json to pick up
         self.schema_traj.append(ret)
-        if not ret["success"]:
+        if ret["success"] is False:
             raise QCEngineAPIEngineError("QCEngineAPI computation did not execute correctly. Message: " + ret["error"]["error_message"])
         # Unpack the energy and gradient
         energy = ret["properties"]["return_energy"]
         gradient = np.array(ret["return_result"])
-        hessian = None
-        return {'energy':energy, 'gradient':gradient, 'hessian':gradient}
+        return {'energy':energy, 'gradient':gradient}
 
-    def calc(self, coords, dirname, driver="gradient", **kwargs):
+    def calc(self, coords, dirname, **kwargs):
         # overwrites the calc method of base class to skip caching and creating folders
-        # **kwargs: for throwing away other arguments such as read_data and copy files.
-        return self.calc_new(coords, dirname, driver)
+        # **kwargs: for throwing away other arguments such as read_data and copyfiles.
+        return self.calc_new(coords, dirname)
 
     def detect_dft(self):
         return any([i.lower() in self.schema["model"]["method"].lower() for i in dft_strings])
@@ -1550,7 +1482,6 @@ class ConicalIntersection(Engine):
                 spcalc = self.engines[istate].calc(coords, state_dnm)
             except EngineError:
                 raise ConicalIntersectionEngineError
-        # Compute penalty function
             E_states.append(spcalc['energy'])
             G_states.append(spcalc['gradient'])
             S_states.append(spcalc.get('s2', 0.0))
