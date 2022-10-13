@@ -18,11 +18,13 @@ setup(
     long_description_content_type="text/markdown",
     entry_points={'console_scripts': [
         'geometric-optimize = geometric.optimize:main',
+        'geometric-neb = geometric.neb:main'
     ]},
     install_requires=[
         'numpy>=1.11',
         'networkx',
         'six',
+        'scipy',
     ],
     tests_require=[
         'pytest',
