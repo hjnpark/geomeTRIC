@@ -36,7 +36,7 @@ POSSIBILITY OF SUCH DAMAGE.
 from __future__ import division
 import os, argparse
 import numpy as np
-from .errors import ParamError
+from .errors import ParamError, InvalidICError
 from .nifty import logger
 
 class OptParams(object):
@@ -212,6 +212,22 @@ class OptParams(object):
             logger.info(' Hessian data will be read from file: %s\n' % self.hessian[5:])
         elif self.hessian.startswith('file+last:'):
             logger.info(' Hessian data will be read from file: %s, then computed for the last step.\n' % self.hessian[5:])
+
+class IntpParams(object):
+    """
+    Container for interpolation parameters.
+    """
+    def __init__(self, **kwargs):
+        coordsys_list = ["tric", "cart", "prim", "dlc", "hdlc", "tric-p"]
+        self.optep = kwargs.get('optep', False)
+        self.coordsys = kwargs.get('coordsys', coordsys_list)
+        self.frames = kwargs.get('frames', 20)
+        for ic in self.coordsys:
+            if ic not in coordsys_list:
+                raise InvalidICError(
+                   "%s coordinate system is not available %s. Available coordinate systems: tric, tric-p, cart, prim, dlc, hdlc"
+                    % ic
+                )
 
 def str2bool(v):
     """ Allows command line options such as "yes" and "True" to be converted into Booleans. """
@@ -400,5 +416,47 @@ def parse_optimizer_args(*args):
     # Set any defaults that are neither provided on the command line nor in the options file
     if 'engine' not in args_dict:
         args_dict['engine'] = 'tera'
+
+    return args_dict
+
+def parse_interpolate_args(*args):
+
+    """
+    Read user input from the command line interface.
+    Designed to be called by interpolate.main() passing in sys.argv[1:]
+    """
+
+    parser = ArgumentParserWithFile(add_help=False, formatter_class=argparse.RawTextHelpFormatter, fromfile_prefix_chars='@')
+
+    grp_univ = parser.add_argument_group('universal', 'Relevant to every job')
+    grp_univ.add_argument('input', type=str, help='REQUIRED positional argument: Quantum chemistry or MM input file for single point energy calculations.\n ')
+    grp_univ.add_argument('coords', type=str, help='REQUIRED positional argument: Coordinate file to override the QM input file / xyz or PDB file. The FIRST and LAST frames will be used.\n ')
+    grp_univ.add_argument('--frames', type=int, help='Number of frames for the interpolation result trajectory(default = 20).')
+    grp_univ.add_argument('--coordsys', nargs="+", help='Coordinate systems for the interpolation. Multiple of them can be provided (default = all):\n'
+                          '"tric" for Translation-Rotation Internal Coordinates\n'
+                          '"cart" = Cartesian coordinate system\n'
+                          '"prim" = Primitive (a.k.a redundant internal coordinates)\n '
+                          '"dlc" = Delocalized Internal Coordinates,\n'
+                          '"hdlc" = Hybrid Delocalized Internal Coordinates\n'
+                          '"tric-p" for primitive Translation-Rotation Internal Coordinates (no delocalization)\n ')
+    grp_univ.add_argument('--engine', type=str, help='Specify engine for computing energies and gradients.\n'
+                          '"tera" = TeraChem (default)         "qchem" = Q-Chem\n'
+                          '"psi4" = Psi4                       "openmm" = OpenMM (pass a force field or XML input file)\n'
+                          '"molpro" = Molpro                   "gmx" = Gromacs (pass conf.gro; requires topol.top and shot.mdp\n '
+                          '"gaussian" = Gaussian09/16          "ase" = ASE calculator, use --ase-class/--ase-kwargs\n ')
+    grp_univ.add_argument('--nt', type=int, help='Specify number of threads for running in parallel\n(for TeraChem this should be number of GPUs)')
+    grp_univ.add_argument('--optep', type=str2bool, help='Provide "yes" to optimize end points before the interpolation.\n ')
+
+    args_dict = {}
+    for k, v in vars(parser.parse_args(*args)).items():
+        if v is not None:
+            args_dict[k] = v
+
+    # Check that the input and coords files exist
+    if not os.path.exists(args_dict['input']) or not os.path.exists(args_dict['coords']):
+        raise RuntimeError("Input files don't exist")
+
+    if 'engine' not in args_dict:
+        args_dict['engine'] = 'psi4'
 
     return args_dict
