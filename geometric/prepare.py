@@ -311,7 +311,11 @@ def get_molecule_engine(**kwargs):
     arg_coords = kwargs.get('coords', None)
     if arg_coords is not None:
         M.load_frames(arg_coords)
-        M = M[-1]
+        if kwargs.get('interpolation', False):
+            print("Trajectory between the two provided geometries will be interpolated.")
+            M = M[::len(M)-1]
+        else:
+            M = M[-1]
         # 2022-09-13: If extra coordinates are provided, the topology may be rebuilt. This decision can be revisited later.
         M.build_topology()
 

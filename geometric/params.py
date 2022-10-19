@@ -219,9 +219,10 @@ class IntpParams(object):
     """
     def __init__(self, **kwargs):
         coordsys_list = ["tric", "cart", "prim", "dlc", "hdlc", "tric-p"]
-        self.optep = kwargs.get('optep', False)
         self.coordsys = kwargs.get('coordsys', coordsys_list)
         self.frames = kwargs.get('frames', 20)
+        self.engine = kwargs.get('engine','psi4')
+        self.workers = kwargs.get('workers', 4)
         for ic in self.coordsys:
             if ic not in coordsys_list:
                 raise InvalidICError(
@@ -431,6 +432,7 @@ def parse_interpolate_args(*args):
     grp_univ = parser.add_argument_group('universal', 'Relevant to every job')
     grp_univ.add_argument('input', type=str, help='REQUIRED positional argument: Quantum chemistry or MM input file for single point energy calculations.\n ')
     grp_univ.add_argument('coords', type=str, help='REQUIRED positional argument: Coordinate file to override the QM input file / xyz or PDB file. The FIRST and LAST frames will be used.\n ')
+    grp_univ.add_argument('constraints', type=str, nargs='?', help='OPTIONAL positional argument: File containing constraint specifications and/or additional options\n ')
     grp_univ.add_argument('--frames', type=int, help='Number of frames for the interpolation result trajectory(default = 20).')
     grp_univ.add_argument('--coordsys', nargs="+", help='Coordinate systems for the interpolation. Multiple of them can be provided (default = all):\n'
                           '"tric" for Translation-Rotation Internal Coordinates\n'
@@ -445,7 +447,9 @@ def parse_interpolate_args(*args):
                           '"molpro" = Molpro                   "gmx" = Gromacs (pass conf.gro; requires topol.top and shot.mdp\n '
                           '"gaussian" = Gaussian09/16          "ase" = ASE calculator, use --ase-class/--ase-kwargs\n ')
     grp_univ.add_argument('--nt', type=int, help='Specify number of threads for running in parallel\n(for TeraChem this should be number of GPUs)')
-    grp_univ.add_argument('--optep', type=str2bool, help='Provide "yes" to optimize end points before the interpolation.\n ')
+
+    grp_help = parser.add_argument_group('help', 'Get help')
+    grp_help.add_argument('-h', '--help', action='help', help='Show this help message and exit')
 
     args_dict = {}
     for k, v in vars(parser.parse_args(*args)).items():
@@ -455,6 +459,18 @@ def parse_interpolate_args(*args):
     # Check that the input and coords files exist
     if not os.path.exists(args_dict['input']) or not os.path.exists(args_dict['coords']):
         raise RuntimeError("Input files don't exist")
+
+    if 'constraints' in args_dict:
+        if not os.path.exists(args_dict['constraints']):
+            raise RuntimeError("Constraints / options file does not exist")
+        args2 = (['_', '__', '@'+args_dict['constraints']],)
+        for k, v in vars(parser.parse_args(*args2)).items():
+            if v is None: continue
+            if k in ['input', 'constraints']: continue
+            if k not in args_dict:
+                args_dict[k] = v
+            elif k in args_dict and v != args_dict[k]:
+                raise RuntimeError("Command line argument %s conflicts with provided value in %s" % (k, args_dict['constraints']))
 
     if 'engine' not in args_dict:
         args_dict['engine'] = 'psi4'
