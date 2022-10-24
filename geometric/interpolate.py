@@ -67,6 +67,9 @@ class TRICterpolate:
         TRIC = DelocalizedInternalCoordinates(
             M_ini, build=True, connect=False, addcart=False
         )
+        TRIC_REV = DelocalizedInternalCoordinates(
+            M_fin, build=True, connect=False, addcart=False
+        )
         DLC = DelocalizedInternalCoordinates(
             M_ini, build=True, connect=True, addcart=False
         )
@@ -82,6 +85,7 @@ class TRICterpolate:
             "cart": CART,
             "prim": PRIM,
             "tric": TRIC,
+            "tric_rev":TRIC_REV,
             "dlc": DLC,
             "hdlc": HDLC,
             "tric-p": TRICP,
@@ -89,18 +93,33 @@ class TRICterpolate:
 
         for ic in self.params.coordsys:
             IC = ICs[ic]
-            dq = IC.calcDiff(prod, reac)
+            IC_rev = ICs["tric_rev"]
+            dq_forward = IC.calcDiff(prod, reac)
+            dq_backward = IC_rev.calcDiff(reac, prod)
             nDiv = self.params.frames
-            curr_coords = reac.copy()
-            coord_list = [curr_coords]
-            for i in range(nDiv):
-                new_coords = IC.newCartesian(curr_coords, dq / nDiv)
-                coord_list.append(new_coords)
-                curr_coords = new_coords.copy()
+            reac_coords = reac.copy()
+            prod_coords = prod.copy()
+            fwd_coord_list = [reac_coords]
+            for i in range(nDiv//2):
+                new_coords = IC.newCartesian(reac_coords, dq_forward / nDiv)
+                fwd_coord_list.append(new_coords)
+                reac_coords = new_coords.copy()
+
+            bwd_coord_list = [prod_coords]
+            for i in range(nDiv//2):
+                new_coords = IC_rev.newCartesian(prod_coords, dq_backward / nDiv)
+                bwd_coord_list.append(new_coords)
+                prod_coords = new_coords.copy()
+            coord_list = fwd_coord_list + bwd_coord_list[::-1]
+            #print(
+            #    "Error in final interpolated vs. product structure (%s):" % ic,
+            #    np.linalg.norm(curr_coords - prod),
+            #)
             print(
-                "Error in final interpolated vs. product structure (%s):" % ic,
-                np.linalg.norm(curr_coords - prod),
+               "Error in TS from forward vs. TS from backward (%s):" % ic,
+               np.linalg.norm(fwd_coord_list[-1] - bwd_coord_list[-1]),
             )
+
             self.interpolated_dict[ic] = np.array(coord_list)
             M_reac.xyzs = [coords.reshape(-1, 3) / ang2bohr for coords in coord_list]
             xyz_dir = os.path.join(self.dir, "interpolated")
