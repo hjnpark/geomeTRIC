@@ -1,4 +1,4 @@
-import os, sys, json, tempfile
+import os, sys, json, copy, tempfile
 
 from .params import parse_interpolate_args, IntpParams
 from .prepare import get_molecule_engine
@@ -39,95 +39,117 @@ class TRICterpolate:
         self.M = M
         self.interpolated_dict = {}
         self.Energy_dict = {}
-
-    def interpolate(self):
+        self.coordsys_dict = {
+            "cart": (CartesianCoordinates, False, False),
+            "prim": (PrimitiveInternalCoordinates, True, False),
+            "dlc": (DelocalizedInternalCoordinates, True, False),
+            "hdlc": (DelocalizedInternalCoordinates, False, True),
+            "tric-p": (PrimitiveInternalCoordinates, False, False),
+            "tric": (DelocalizedInternalCoordinates, False, False),
+        }
         M_reac = self.M[0]
         M_prod = self.M[-1]
         M_reac.build_topology()
         M_prod.build_topology()
 
         if len(M_reac.molecules) >= len(M_reac.molecules):
-            M_ini = M_reac
-            M_fin = M_prod
+            self.M_ini = copy.deepcopy(M_reac)
+            self.M_fin = copy.deepcopy(M_prod)
         else:
-            M_ini = M_prod
-            M_fin = M_reac
+            self.M_ini = copy.deepcopy(M_prod)
+            self.M_fin = copy.deepcopy(M_reac)
 
-        reac = M_ini.xyzs[0].flatten() * ang2bohr
-        prod = M_fin.xyzs[0].flatten() * ang2bohr
-        if len(reac) != len(prod):
-            raise RuntimeError(
-                "Number of atoms of reactant and product should be same."
-            )
+        self.simple_xyz = self.M[0]
+        self.mix_xyz = self.M[0]
 
-        CART = CartesianCoordinates(M_ini, build=True, connect=False, addcart=False)
-        PRIM = PrimitiveInternalCoordinates(
-            M_ini, build=True, connect=True, addcart=False
-        )
-        TRIC = DelocalizedInternalCoordinates(
-            M_ini, build=True, connect=False, addcart=False
-        )
-        TRIC_REV = DelocalizedInternalCoordinates(
-            M_fin, build=True, connect=False, addcart=False
-        )
-        DLC = DelocalizedInternalCoordinates(
-            M_ini, build=True, connect=True, addcart=False
-        )
-        HDLC = DelocalizedInternalCoordinates(
-            M_ini, build=True, connect=False, addcart=True
-        )
+        self.reac = self.M_ini.xyzs[0].flatten() * ang2bohr
+        self.prod = self.M_fin.xyzs[0].flatten() * ang2bohr
 
-        TRICP = PrimitiveInternalCoordinates(
-            M_ini, build=True, connect=False, addcart=False
-        )
-
-        ICs = {
-            "cart": CART,
-            "prim": PRIM,
-            "tric": TRIC,
-            "tric_rev":TRIC_REV,
-            "dlc": DLC,
-            "hdlc": HDLC,
-            "tric-p": TRICP,
-        }
+    def simple_interpolate(self):
 
         for ic in self.params.coordsys:
-            IC = ICs[ic]
-            IC_rev = ICs["tric_rev"]
-            dq_forward = IC.calcDiff(prod, reac)
-            dq_backward = IC_rev.calcDiff(reac, prod)
-            nDiv = self.params.frames
-            reac_coords = reac.copy()
-            prod_coords = prod.copy()
-            fwd_coord_list = [reac_coords]
-            for i in range(nDiv//2):
-                new_coords = IC.newCartesian(reac_coords, dq_forward / nDiv)
-                fwd_coord_list.append(new_coords)
-                reac_coords = new_coords.copy()
-
-            bwd_coord_list = [prod_coords]
-            for i in range(nDiv//2):
-                new_coords = IC_rev.newCartesian(prod_coords, dq_backward / nDiv)
-                bwd_coord_list.append(new_coords)
-                prod_coords = new_coords.copy()
-            coord_list = fwd_coord_list + bwd_coord_list[::-1]
-            #print(
-            #    "Error in final interpolated vs. product structure (%s):" % ic,
-            #    np.linalg.norm(curr_coords - prod),
-            #)
-            print(
-               "Error in TS from forward vs. TS from backward (%s):" % ic,
-               np.linalg.norm(fwd_coord_list[-1] - bwd_coord_list[-1]),
+            CoordClass, connect, addcart = self.coordsys_dict[ic.lower()]
+            IC = CoordClass(
+                self.M_ini,
+                build=True,
+                connect=connect,
+                addcart=addcart,
+                constraints=None,
             )
-
-            self.interpolated_dict[ic] = np.array(coord_list)
-            M_reac.xyzs = [coords.reshape(-1, 3) / ang2bohr for coords in coord_list]
+            dq = IC.calcDiff(self.prod, self.reac)
+            nDiv = self.params.frames - 1
+            curr_coords = self.reac.copy()
+            coord_list = [curr_coords]
+            for i in range(nDiv):
+                new_coords = IC.newCartesian(curr_coords, dq / nDiv)
+                coord_list.append(new_coords)
+                curr_coords = new_coords.copy()
+            print(
+                "Error in final interpolated vs. product structure (%s):" % ic,
+                np.linalg.norm(curr_coords - self.prod),
+            )
+            self.interpolated_dict['simple_'+ic] = np.array(coord_list)
+            self.simple_xyz.xyzs = [
+                coords.reshape(-1, 3) / ang2bohr for coords in coord_list
+            ]
             xyz_dir = os.path.join(self.dir, "interpolated")
             if not os.path.exists(xyz_dir):
                 os.makedirs(xyz_dir)
-            M_reac.write(os.path.join(xyz_dir, "interpolated_%s.xyz" % ic))
+            self.simple_xyz.write(
+                os.path.join(xyz_dir, "simple_interpolated_%s.xyz" % ic)
+            )
 
-    def calculate_energies(self):
+    def mix_interpolate(self):
+
+        for ic in self.params.coordsys:
+            CoordClass, connect, addcart = self.coordsys_dict[ic.lower()]
+            IC_fwd = CoordClass(
+                self.M_ini,
+                build=True,
+                connect=connect,
+                addcart=addcart,
+                constraints=None,
+            )
+            IC_rev = CoordClass(
+                self.M_fin,
+                build=True,
+                connect=connect,
+                addcart=addcart,
+                constraints=None,
+            )
+            dq_forward = IC_fwd.calcDiff(self.prod, self.reac)
+            dq_backward = IC_rev.calcDiff(self.reac, self.prod)
+            nDiv = self.params.frames
+            reac_coords = self.reac.copy()
+            prod_coords = self.prod.copy()
+            fwd_coord_list = [reac_coords]
+            bwd_coord_list = [prod_coords]
+
+            for i in range(nDiv // 2):
+
+                new_fwd_coords = IC_fwd.newCartesian(reac_coords, dq_forward / nDiv)
+                fwd_coord_list.append(new_fwd_coords)
+                reac_coords = new_fwd_coords.copy()
+                new_bwd_coords = IC_rev.newCartesian(prod_coords, dq_backward / nDiv)
+                bwd_coord_list.append(new_bwd_coords)
+                prod_coords = new_bwd_coords.copy()
+
+            coord_list = fwd_coord_list + bwd_coord_list[::-1]
+            print(
+                "Difference between TS from forward and TS from backward (%s):" % ic,
+                np.linalg.norm(fwd_coord_list[-1] - bwd_coord_list[-1]),
+            )
+
+            self.interpolated_dict['mix_'+ic] = np.array(coord_list)
+            self.mix_xyz.xyzs = [
+                coords.reshape(-1, 3) / ang2bohr for coords in coord_list
+            ]
+            xyz_dir = os.path.join(self.dir, "interpolated")
+            if not os.path.exists(xyz_dir):
+                os.makedirs(xyz_dir)
+            self.mix_xyz.write(os.path.join(xyz_dir, "mixed_interpolated_%s.xyz" % ic))
+
+    def calculate_energies(self, interpolation_type=None):
         print("Calculating Energies...")
         for ic, geos in self.interpolated_dict.items():
             e_list = []
@@ -136,19 +158,28 @@ class TRICterpolate:
                 e_list.append(E)
             self.Energy_dict[ic] = e_list
         json_str = json.dumps(self.Energy_dict, indent=4)
-        with open(os.path.join(self.dir, "energies.json"), "w") as f:
+        with open(
+            os.path.join(self.dir, "%s_energies.json" % interpolation_type), "w"
+        ) as f:
             f.write(json_str)
 
     def plot(self):
         import matplotlib.pyplot as plt
 
-        coordsys_list = {
-            "cart": ["Cartesian", ".--"],
-            "prim": ["Primitive I.C.", "2--"],
-            "dlc": ["Delocalized I.C.", "1--"],
-            "hdlc": ["HDLC", "+--"],
-            "tric": ["TRIC", "d--"],
-            "tric-p": ["TRICP", "X--"]
+        coordsys_dict = {
+            "simple_cart": ["Cartesian", ".--"],
+            "simple_prim": ["Primitive I.C.", "2--"],
+            "simple_dlc": ["Delocalized I.C.", "1--"],
+            "simple_hdlc": ["HDLC", "+--"],
+            "simple_tric": ["TRIC", "d--"],
+            "simple_tric-p": ["TRICP", "X--"],
+            "mix_cart": ["M-Cartesian", "|--"],
+            "mix_prim": ["M-Primitive I.C.", "4--"],
+            "mix_dlc": ["M-Delocalized I.C.", "3--"],
+            "mix_hdlc": ["M-HDLC", "h--"],
+            "mix_tric": ["M-TRIC", "O--"],
+            "mix_tric-p": ["M-TRICP", "^--"],
+            "geodestic": ["Geodestic", "o--"]
         }
         label = []
         e_array = []
@@ -158,13 +189,13 @@ class TRICterpolate:
 
         x = np.arange(len(e_array[0]))
 
-        plt.figure(figsize=(6, 4))
+        plt.figure(figsize=(12, 8))
         for i in range(len(e_array)):
             plt.plot(
                 x,
                 e_array[i],
-                coordsys_list[label[i]][-1],
-                label=coordsys_list[label[i]][0],
+                coordsys_dict[label[i]][-1],
+                label=coordsys_dict[label[i]][0],
             )
 
         plt.legend()
@@ -176,13 +207,14 @@ class TRICterpolate:
 def main():
     args_dict = parse_interpolate_args(sys.argv[1:])
     args_dict["interpolation"] = True
-
     params = IntpParams(**args_dict)
     M, engine = get_molecule_engine(**args_dict)
 
     TRIC = TRICterpolate(params, M, engine)
-    TRIC.interpolate()
-    TRIC.calculate_energies()
+    TRIC.simple_interpolate()
+    TRIC.calculate_energies("simple")
+    #TRIC.mix_interpolate()
+    #TRIC.calculate_energies("mix")
     TRIC.plot()
     print("Done!")
 
