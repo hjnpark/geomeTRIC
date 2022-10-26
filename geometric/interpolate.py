@@ -119,7 +119,7 @@ class TRICterpolate:
             )
             dq_forward = IC_fwd.calcDiff(self.prod, self.reac)
             dq_backward = IC_rev.calcDiff(self.reac, self.prod)
-            nDiv = self.params.frames
+            nDiv = self.params.frames - 1
             reac_coords = self.reac.copy()
             prod_coords = self.prod.copy()
             fwd_coord_list = [reac_coords]
@@ -127,12 +127,15 @@ class TRICterpolate:
 
             for i in range(nDiv // 2):
 
-                new_fwd_coords = IC_fwd.newCartesian(reac_coords, dq_forward / nDiv)
+                new_fwd_coords = IC_fwd.newCartesian(reac_coords, dq_forward / (nDiv-2*i))
                 fwd_coord_list.append(new_fwd_coords)
                 reac_coords = new_fwd_coords.copy()
-                new_bwd_coords = IC_rev.newCartesian(prod_coords, dq_backward / nDiv)
+                new_bwd_coords = IC_rev.newCartesian(prod_coords, dq_backward / (nDiv-2*i))
                 bwd_coord_list.append(new_bwd_coords)
                 prod_coords = new_bwd_coords.copy()
+
+                dq_forward = IC_fwd.calcDiff(new_bwd_coords, new_fwd_coords)
+                dq_backward = IC_rev.calcDiff(new_fwd_coords, new_bwd_coords)
 
             coord_list = fwd_coord_list + bwd_coord_list[::-1]
             print(
