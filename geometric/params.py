@@ -226,7 +226,7 @@ class IntpParams(object):
         for ic in self.coordsys:
             if ic not in coordsys_list:
                 raise InvalidICError(
-                   "%s coordinate system is not available %s. Available coordinate systems: tric, tric-p, cart, prim, dlc, hdlc"
+                   "%s coordinate system is not available. Available coordinate systems: tric, tric-p, cart, prim, dlc, hdlc"
                     % ic
                 )
 
