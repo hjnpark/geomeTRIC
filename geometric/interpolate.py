@@ -226,12 +226,14 @@ class Interpolate:
             ]
             self.fwd_M.xyzs = [coords.reshape(-1,3) / ang2bohr for coords in fwd_coord_list]
             self.bwd_M.xyzs = [coords.reshape(-1,3)/ ang2bohr for coords in bwd_coord_list]
-            Equal_M = EqualSpacing(self.mix_xyz)
-            #Equal_M = self.mix_xyz
+            if self.params.equal_space:
+                final_M = EqualSpacing(self.mix_xyz)
+            else:
+                final_M = self.mix_xyz
             xyz_dir = os.path.join(self.dir, "interpolated")
             if not os.path.exists(xyz_dir):
                 os.makedirs(xyz_dir)
-            Equal_M.write(os.path.join(xyz_dir, "mixed_interpolated_%s.xyz" % ic))
+            final_M.write(os.path.join(xyz_dir, "mixed_interpolated_%s.xyz" % ic))
             self.fwd_M.write(os.path.join(xyz_dir, "mixed_fwd_interpolated_%s.xyz" % ic))
             self.bwd_M.write(os.path.join(xyz_dir, "mixed_bwd_interpolated_%s.xyz" % ic))
 

@@ -434,6 +434,7 @@ def parse_interpolate_args(*args):
     grp_univ.add_argument('coords', type=str, help='REQUIRED positional argument: Coordinate file to override the QM input file / xyz or PDB file. The FIRST and LAST frames will be used.\n ')
     grp_univ.add_argument('constraints', type=str, nargs='?', help='OPTIONAL positional argument: File containing constraint specifications and/or additional options\n ')
     grp_univ.add_argument('--frames', type=int, help='Number of frames for the interpolation result trajectory(default = 20).')
+    grp_univ.add_argument('--equal_space', action=str2bool, help='Provide "yes" to space between frames equally at the end of the interpolation.')
     grp_univ.add_argument('--coordsys', nargs="+", help='Coordinate systems for the interpolation. Multiple of them can be provided (default = all):\n'
                           '"tric" for Translation-Rotation Internal Coordinates\n'
                           '"cart" = Cartesian coordinate system\n'
