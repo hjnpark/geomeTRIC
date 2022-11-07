@@ -12,7 +12,6 @@ from .internal import (
 import numpy as np
 
 
-
 class Interpolate:
     def __init__(self, params, M, engine):
 
@@ -103,21 +102,27 @@ class Interpolate:
                 os.path.join(xyz_dir, "simple_interpolated_%s.xyz" % ic)
             )
 
-    def fill(self, cart1, cart2, ic, max_diff, mean_diff):
+    def fill(self, cart1, cart2, ic, final_diff, mean_diff):
+        print("Mean difference: %.5f" % mean_diff)
+        print("Max difference: %.5f" % final_diff)
         print("filling...")
         reac_coords = cart1.copy()
         prod_coords = cart2.copy()
-        filled_fwd_list = [cart1]
-        filled_bwd_list = [cart2]
+        filled_fwd_list = []
+        filled_bwd_list = []
         M_ini = copy.deepcopy(self.M_ini)
         M_fin = copy.deepcopy(self.M_fin)
-        M_ini.xyzs =  [cart1.reshape(-1,3)/ang2bohr]
-        M_fin.xyzs = [cart2.reshape(-1,3)/ang2bohr]
+        M_ini.xyzs = [cart1.reshape(-1, 3) / ang2bohr]
+        M_fin.xyzs = [cart2.reshape(-1, 3) / ang2bohr]
         CoordClass, connect, addacart = self.coordsys_dict[ic.lower()]
-        nDiv = 2 + int(max_diff//mean_diff)
-        for i in range(nDiv//2):
-            IC_fwd = CoordClass(M_ini, build=True, connect=connect, addcart=addacart, constraints=None)
-            IC_bwd = CoordClass(M_fin, build=True, connect=connect, addcart=addacart, constraints=None)
+        nDiv = int(final_diff // mean_diff)
+        for i in range(nDiv // 2):
+            IC_fwd = CoordClass(
+                M_ini, build=True, connect=connect, addcart=addacart, constraints=None
+            )
+            IC_bwd = CoordClass(
+                M_fin, build=True, connect=connect, addcart=addacart, constraints=None
+            )
             if i == 0:
                 dq_fwd = IC_fwd.calcDiff(reac_coords, prod_coords)
                 dq_bwd = IC_bwd.calcDiff(prod_coords, reac_coords)
@@ -132,26 +137,36 @@ class Interpolate:
                 filled_fwd_list.append(new_fwd_coords)
                 new_bwd_coords = IC_bwd.newCartesian(prod_coords, step_bwd)
                 filled_bwd_list.append(new_bwd_coords)
+                final_diff = np.linalg.norm(new_bwd_coords - new_fwd_coords)
+                if final_diff / mean_diff > 1.0:
+                    filled_list = self.fill(new_fwd_coords, new_bwd_coords, ic, final_diff, mean_diff)
+                    filled_fwd_list += filled_list
+
                 break
             else:
                 new_fwd_coords = IC_fwd.newCartesian(reac_coords, step_fwd)
                 new_bwd_coords = IC_bwd.newCartesian(prod_coords, step_bwd)
                 reac_coords = new_fwd_coords.copy()
+                prod_coords = new_bwd_coords.copy()
 
+                filled_fwd_list.append(new_fwd_coords)
                 filled_bwd_list.append(new_bwd_coords)
 
-                prod_coords = new_bwd_coords.copy()
+                #fwd_diff = np.linalg.norm(
+                #    reac_coords.reshape(-1, 3) - new_fwd_coords.reshape(-1, 3),
+                #    axis=1,
+                #)
 
                 M_ini.xyzs = [new_fwd_coords.reshape(-1, 3) / ang2bohr]
                 M_fin.xyzs = [new_bwd_coords.reshape(-1, 3) / ang2bohr]
         filled_list = filled_fwd_list + filled_bwd_list[::-1]
         return filled_list
-    def mix_interpolate(self):
 
+    def mix_interpolate(self):
         for ic in self.params.coordsys:
             CoordClass, connect, addcart = self.coordsys_dict[ic.lower()]
 
-            nDiv = self.params.frames - 1
+            nDiv = self.params.frames
             reac_coords = self.reac.copy()
             prod_coords = self.prod.copy()
             fwd_coord_list = [reac_coords]
@@ -187,31 +202,36 @@ class Interpolate:
                 step_fwd = dq_fwd / interval
                 step_bwd = dq_bwd / interval
                 if interval <= 3:
-                    mean_diff = np.mean((fwd_diff_mean+bwd_diff_mean)/2)
-                    print("diff means", mean_diff)
+                    mean_diff = np.mean((fwd_diff_mean + bwd_diff_mean) / 2)
                     new_fwd_coords = IC_fwd.newCartesian(reac_coords, step_fwd)
                     fwd_coord_list.append(new_fwd_coords)
                     new_bwd_coords = IC_bwd.newCartesian(prod_coords, step_bwd)
                     bwd_coord_list.append(new_bwd_coords)
-                    final_diff = np.linalg.norm(fwd_coord_list[-1]-bwd_coord_list[-1])
-                    print("final diff", final_diff)
-                    filled_list = self.fill(fwd_coord_list[-1], bwd_coord_list[-1], ic, final_diff,
-                                            mean_diff)
+                    final_diff = np.linalg.norm(fwd_coord_list[-1] - bwd_coord_list[-1])
+                    filled_list = self.fill(new_fwd_coords, new_bwd_coords, ic, final_diff, mean_diff)
                     fwd_coord_list += filled_list
                     break
                 else:
                     new_fwd_coords = IC_fwd.newCartesian(reac_coords, step_fwd)
                     new_bwd_coords = IC_bwd.newCartesian(prod_coords, step_bwd)
 
-                    fwd_diff = np.linalg.norm(reac_coords.reshape(-1,3)-new_fwd_coords.reshape(-1,3), axis=1)
+                    fwd_diff = np.linalg.norm(
+                        reac_coords.reshape(-1, 3) - new_fwd_coords.reshape(-1, 3),
+                        axis=1,
+                    )
                     fwd_cart_diff.append(fwd_diff)
                     fwd_diff_mean = np.mean(fwd_cart_diff, axis=0)
                     fwd_coord_list.append(new_fwd_coords)
                     reac_coords = new_fwd_coords.copy()
 
-                    bwd_diff = np.linalg.norm(prod_coords.reshape(-1,3) - new_bwd_coords.reshape(-1,3), axis=1)
+                    bwd_diff = np.linalg.norm(
+                        prod_coords.reshape(-1, 3) - new_bwd_coords.reshape(-1, 3),
+                        axis=1,
+                    )
+                    print("iteration %i" %i)
+                    print("fwd_bwd_diffes",np.mean(fwd_diff), np.mean(bwd_diff))
                     bwd_cart_diff.append(bwd_diff)
-                    bwd_diff_mean =  np.mean(bwd_cart_diff, axis=0)
+                    bwd_diff_mean = np.mean(bwd_cart_diff, axis=0)
                     bwd_coord_list.append(new_bwd_coords)
                     prod_coords = new_bwd_coords.copy()
 
@@ -224,18 +244,41 @@ class Interpolate:
             self.mix_xyz.xyzs = [
                 coords.reshape(-1, 3) / ang2bohr for coords in coord_list
             ]
-            self.fwd_M.xyzs = [coords.reshape(-1,3) / ang2bohr for coords in fwd_coord_list]
-            self.bwd_M.xyzs = [coords.reshape(-1,3)/ ang2bohr for coords in bwd_coord_list]
+            tot_len = len(self.mix_xyz)
+            self.fwd_M.xyzs = [
+                coords.reshape(-1, 3) / ang2bohr for coords in fwd_coord_list
+            ]
+            self.bwd_M.xyzs = [
+                coords.reshape(-1, 3) / ang2bohr for coords in bwd_coord_list
+            ]
             if self.params.equal_space:
-                final_M = EqualSpacing(self.mix_xyz)
+                final_M = EqualSpacing(self.mix_xyz)[
+                    np.array(
+                        [
+                            int(round(i))
+                            for i in np.linspace(0, tot_len - 1, self.params.frames)
+                        ]
+                    )
+                ]
             else:
-                final_M = self.mix_xyz
+                final_M = self.mix_xyz[
+                    np.array(
+                        [
+                            int(round(i))
+                            for i in np.linspace(0, tot_len - 1, self.params.frames)
+                        ]
+                    )
+                ]
             xyz_dir = os.path.join(self.dir, "interpolated")
             if not os.path.exists(xyz_dir):
                 os.makedirs(xyz_dir)
             final_M.write(os.path.join(xyz_dir, "mixed_interpolated_%s.xyz" % ic))
-            self.fwd_M.write(os.path.join(xyz_dir, "mixed_fwd_interpolated_%s.xyz" % ic))
-            self.bwd_M.write(os.path.join(xyz_dir, "mixed_bwd_interpolated_%s.xyz" % ic))
+            self.fwd_M.write(
+                os.path.join(xyz_dir, "mixed_fwd_interpolated_%s.xyz" % ic)
+            )
+            self.bwd_M.write(
+                os.path.join(xyz_dir, "mixed_bwd_interpolated_%s.xyz" % ic)
+            )
 
     def calculate_energies(self, interpolation_type=None):
         print("Calculating Energies...")
