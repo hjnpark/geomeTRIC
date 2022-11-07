@@ -139,7 +139,9 @@ class Interpolate:
                 filled_bwd_list.append(new_bwd_coords)
                 final_diff = np.linalg.norm(new_bwd_coords - new_fwd_coords)
                 if final_diff / mean_diff > 1.0:
-                    filled_list = self.fill(new_fwd_coords, new_bwd_coords, ic, final_diff, mean_diff)
+                    filled_list = self.fill(
+                        new_fwd_coords, new_bwd_coords, ic, final_diff, mean_diff
+                    )
                     filled_fwd_list += filled_list
 
                 break
@@ -152,10 +154,10 @@ class Interpolate:
                 filled_fwd_list.append(new_fwd_coords)
                 filled_bwd_list.append(new_bwd_coords)
 
-                #fwd_diff = np.linalg.norm(
+                # fwd_diff = np.linalg.norm(
                 #    reac_coords.reshape(-1, 3) - new_fwd_coords.reshape(-1, 3),
                 #    axis=1,
-                #)
+                # )
 
                 M_ini.xyzs = [new_fwd_coords.reshape(-1, 3) / ang2bohr]
                 M_fin.xyzs = [new_bwd_coords.reshape(-1, 3) / ang2bohr]
@@ -208,7 +210,9 @@ class Interpolate:
                     new_bwd_coords = IC_bwd.newCartesian(prod_coords, step_bwd)
                     bwd_coord_list.append(new_bwd_coords)
                     final_diff = np.linalg.norm(fwd_coord_list[-1] - bwd_coord_list[-1])
-                    filled_list = self.fill(new_fwd_coords, new_bwd_coords, ic, final_diff, mean_diff)
+                    filled_list = self.fill(
+                        new_fwd_coords, new_bwd_coords, ic, final_diff, mean_diff
+                    )
                     fwd_coord_list += filled_list
                     break
                 else:
@@ -228,8 +232,8 @@ class Interpolate:
                         prod_coords.reshape(-1, 3) - new_bwd_coords.reshape(-1, 3),
                         axis=1,
                     )
-                    print("iteration %i" %i)
-                    print("fwd_bwd_diffes",np.mean(fwd_diff), np.mean(bwd_diff))
+                    print("iteration %i" % i)
+                    print("fwd_bwd_diffes", np.mean(fwd_diff), np.mean(bwd_diff))
                     bwd_cart_diff.append(bwd_diff)
                     bwd_diff_mean = np.mean(bwd_cart_diff, axis=0)
                     bwd_coord_list.append(new_bwd_coords)
@@ -252,6 +256,7 @@ class Interpolate:
                 coords.reshape(-1, 3) / ang2bohr for coords in bwd_coord_list
             ]
             if self.params.equal_space:
+                print("Spacing frames evenly.")
                 final_M = EqualSpacing(self.mix_xyz)[
                     np.array(
                         [
