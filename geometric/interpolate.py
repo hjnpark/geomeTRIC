@@ -116,6 +116,7 @@ class Interpolate:
         M_fin.xyzs = [cart2.reshape(-1, 3) / ang2bohr]
         CoordClass, connect, addacart = self.coordsys_dict[ic.lower()]
         nDiv = int(final_diff // mean_diff)
+        nDiv += nDiv % 2
         for i in range(nDiv // 2):
             IC_fwd = CoordClass(
                 M_ini, build=True, connect=connect, addcart=addacart, constraints=None
@@ -132,7 +133,7 @@ class Interpolate:
             interval = nDiv - 2 * i
             step_fwd = dq_fwd / interval
             step_bwd = dq_bwd / interval
-            if interval <= 3:
+            if interval == 2:
                 new_fwd_coords = IC_fwd.newCartesian(reac_coords, step_fwd)
                 filled_fwd_list.append(new_fwd_coords)
                 new_bwd_coords = IC_bwd.newCartesian(prod_coords, step_bwd)
@@ -169,6 +170,7 @@ class Interpolate:
             CoordClass, connect, addcart = self.coordsys_dict[ic.lower()]
 
             nDiv = self.params.frames
+            nDiv += nDiv%2
             reac_coords = self.reac.copy()
             prod_coords = self.prod.copy()
             fwd_coord_list = [reac_coords]
@@ -203,7 +205,7 @@ class Interpolate:
                 interval = nDiv - 2 * i
                 step_fwd = dq_fwd / interval
                 step_bwd = dq_bwd / interval
-                if interval <= 3:
+                if interval == 2:
                     mean_diff = np.mean((fwd_diff_mean + bwd_diff_mean) / 2)
                     new_fwd_coords = IC_fwd.newCartesian(reac_coords, step_fwd)
                     fwd_coord_list.append(new_fwd_coords)
