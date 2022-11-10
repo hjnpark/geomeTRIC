@@ -87,6 +87,14 @@ class Interpolate:
                 new_coords = IC.newCartesian(curr_coords, dq / nDiv)
                 coord_list.append(new_coords)
                 curr_coords = new_coords.copy()
+
+                eig, vec = np.linalg.eig(IC.GMatrix(new_coords))
+                print("\n----------------------------------")
+                print("Condition number %f" %np.real(eig[0]/eig[-1]))
+                print("Eigvals", np.real(eig[:5]))
+                print("Largest Eigval: %f" %np.real(eig[0]))
+                print("Smallest Eigval: %f" %np.real(eig[-1]))
+
             print(
                 "Error in final interpolated vs. product structure (%s):" % ic,
                 np.linalg.norm(curr_coords - self.prod),

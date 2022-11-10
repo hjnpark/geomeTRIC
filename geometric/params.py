@@ -219,7 +219,8 @@ class IntpParams(object):
     """
     def __init__(self, **kwargs):
         coordsys_list = ["tric", "cart", "prim", "dlc", "hdlc", "tric-p"]
-        self.coordsys = kwargs.get('coordsys', coordsys_list)
+        self.coordsys = []
+        self.coordsys.append(kwargs.get('coordsys', coordsys_list))
         self.frames = kwargs.get('frames', 20)
         self.engine = kwargs.get('engine','psi4')
         self.workers = kwargs.get('workers', 4)
