@@ -102,8 +102,9 @@ class Interpolate:
                        'Initial Backward IC':[],
                        'New Forward IC':[],
                        'New Backward IC':[],
-                       'Updated Forward IC':[],
-                       'Updated Backward IC':[]}
+                       }
+                       #'Updated Forward IC':[],
+                       #'Updated Backward IC':[]}
 
             for i in range(nDiv):
                 IC_f_new = CoordClass(
@@ -122,33 +123,33 @@ class Interpolate:
                     constraints=None,
                 )
 
-                IC_f_upd =  CoordClass(
-                    M_ini_upd,
-                    build=True,
-                    connect=connect,
-                    addcart=addcart,
-                    constraints=None,
-                )
+                #IC_f_upd =  CoordClass(
+                #    M_ini_upd,
+                #    build=True,
+                #    connect=connect,
+                #    addcart=addcart,
+                #    constraints=None,
+                #)
 
-                IC_b_upd =  CoordClass(
-                    M_fin_upd,
-                    build=True,
-                    connect=connect,
-                    addcart=addcart,
-                    constraints=None,
-                )
+                #IC_b_upd =  CoordClass(
+                #    M_fin_upd,
+                #    build=True,
+                #    connect=connect,
+                #    addcart=addcart,
+                #    constraints=None,
+                #)
 
-                if i != 0:
-                    dq_upd_f = IC_f_upd.calcDiff(curr_coords_b_upd, curr_coords_f_upd)
-                    dq_upd_b = IC_b_upd.calcDiff(curr_coords_f_upd, curr_coords_b_upd)
-                    new_coords_f_upd = IC_f_upd.newCartesian(curr_coords_f_upd, dq_upd_f / (nDiv - i))
-                    new_coords_b_upd = IC_b_upd.newCartesian(curr_coords_b_upd, dq_upd_b / (nDiv - i))
+                #if i != 0:
+                #    dq_upd_f = IC_f_upd.calcDiff(curr_coords_b_upd, curr_coords_f_upd)
+                #    dq_upd_b = IC_b_upd.calcDiff(curr_coords_f_upd, curr_coords_b_upd)
+                #    new_coords_f_upd = IC_f_upd.newCartesian(curr_coords_f_upd, dq_upd_f / (nDiv - i))
+                #    new_coords_b_upd = IC_b_upd.newCartesian(curr_coords_b_upd, dq_upd_b / (nDiv - i))
 
-                    curr_coords_f_upd = new_coords_f_upd.copy()
-                    curr_coords_b_upd = new_coords_b_upd.copy()
+                #    curr_coords_f_upd = new_coords_f_upd.copy()
+                #    curr_coords_b_upd = new_coords_b_upd.copy()
 
-                new_coords_f_normal = IC_f_new.newCartesian(curr_coords_f_normal, dq_f / nDiv)
-                new_coords_b_normal = IC_b_new.newCartesian(curr_coords_b_normal, dq_b / nDiv)
+                new_coords_f_normal = IC_f_ini.newCartesian(curr_coords_f_normal, dq_f / nDiv)
+                new_coords_b_normal = IC_b_ini.newCartesian(curr_coords_b_normal, dq_b / nDiv)
 
 
 
@@ -169,24 +170,25 @@ class Interpolate:
 
                 G_b_new = IC_b_new.GMatrix(new_coords_f_normal)
                 eig_b_new, vec_b_new = np.linalg.eigh(G_b_new)
-                if i != 0:
-                    G_f_upd = IC_f_upd.GMatrix(new_coords_f_upd)
-                    eig_f_upd, vec_f_upd = np.linalg.eigh(G_f_upd)
+                #if i != 0:
+                #    G_f_upd = IC_f_upd.GMatrix(new_coords_f_upd)
+                #    eig_f_upd, vec_f_upd = np.linalg.eigh(G_f_upd)
 
-                    G_b_upd = IC_b_upd.GMatrix(new_coords_b_upd)
-                    eig_b_upd, vec_b_upd = np.linalg.eigh(G_b_upd)
+                #    G_b_upd = IC_b_upd.GMatrix(new_coords_b_upd)
+                #    eig_b_upd, vec_b_upd = np.linalg.eigh(G_b_upd)
                 print("\n-------------------------------------------------------------")
                 #print("G", G)
                 con_num_if = np.real(eig_f_ini[-1] / eig_f_ini[0])
                 con_num_ib = np.real(eig_b_ini[-1] / eig_b_ini[0])
                 con_num_nf = np.real(eig_f_new[-1] / eig_f_new[0])
                 con_num_nb = np.real(eig_b_new[-1] / eig_b_new[0])
-                if i != 0:
-                    con_num_uf = np.real(eig_b_upd[-1] / eig_b_upd[0])
-                    con_num_ub = np.real(eig_b_upd[-1] / eig_b_upd[0])
+                #if i != 0:
+                #    con_num_uf = np.real(eig_b_upd[-1] / eig_b_upd[0])
+                #    con_num_ub = np.real(eig_b_upd[-1] / eig_b_upd[0])
 
-                    cn_info['Updated Forward IC'].append(con_num_uf)
-                    cn_info['Updated Backward IC'].append(con_num_ub)
+                #    cn_info['Updated Forward IC'].append(con_num_uf)
+                #    cn_info['Updated Backward IC'].append(con_num_ub)
+                print("eigen vectors", vec_f_ini.shape, eig_f_ini.shape)
                 print("Condition number of initial forward %f" %con_num_if)
                 print("Condition number of initial backward %f" %con_num_ib)
                 print("Condition number of new forward %f" %con_num_nf)
@@ -205,12 +207,12 @@ class Interpolate:
                 #print("Smallets vector:", vec[-1])
                 M_ini.xyzs = [new_coords_f_normal.reshape(-1, 3) / ang2bohr]
                 M_fin.xyzs = [new_coords_b_normal.reshape(-1, 3) / ang2bohr]
-                if i == 0 :
-                    curr_coords_f_upd = new_coords_f_normal.copy()
-                    curr_coords_b_upd = new_coords_b_normal.copy()
-                else:
-                    M_ini_upd.xyzs = [new_coords_f_upd.reshape(-1, 3) / ang2bohr]
-                    M_fin_upd.xyzs = [new_coords_b_upd.reshape(-1, 3) / ang2bohr]
+                #if i == 0 :
+                #    curr_coords_f_upd = new_coords_f_normal.copy()
+                #    curr_coords_b_upd = new_coords_b_normal.copy()
+                #else:
+                #    M_ini_upd.xyzs = [new_coords_f_upd.reshape(-1, 3) / ang2bohr]
+                #    M_fin_upd.xyzs = [new_coords_b_upd.reshape(-1, 3) / ang2bohr]
             json_str = json.dumps(cn_info, indent=4)
             with open('cn_info.json', "w") as f:
                 f.write(json_str)
@@ -482,14 +484,14 @@ def main():
     M, engine = get_molecule_engine(**args_dict)
 
     TRIC = Interpolate(params, M, engine)
-    # TRIC.simple_interpolate()
+    TRIC.simple_interpolate()
     # TRIC.calculate_energies("simple")
     # TRIC.fwd_bwd_interpolate()
-    TRIC.mix_interpolate()
-    TRIC.calculate_energies("mix")
+    #TRIC.mix_interpolate()
+    # TRIC.calculate_energies("mix")
     # TRIC.calculate_energies("fwd_bwd")
 
-    TRIC.plot()
+    # TRIC.plot()
     print("Done!")
 
 
