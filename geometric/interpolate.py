@@ -99,60 +99,63 @@ class Interpolate:
 
             coord_list_f = [curr_coords_f_normal]
             coord_list_b = [curr_coords_b_normal]
-                
+
             M_ini = copy.deepcopy(self.M_ini)
             M_fin = copy.deepcopy(self.M_fin)
 
-            cn_info = {'Initial Forward IC':[],
-                       'Initial Backward IC':[],
-                       'New Forward IC':[],
-                       'New Backward IC':[],
-                       }
+            cn_info = {
+                "Initial Forward IC": [],
+                "Initial Backward IC": [],
+                "New Forward IC": [],
+                "New Backward IC": [],
+            }
 
-            for i in range(nDiv//2):
+            for i in range(nDiv // 2):
 
                 dq_f = IC_f_ini.calcDiff(curr_coords_b_normal, curr_coords_f_normal)
                 dq_b = IC_b_ini.calcDiff(curr_coords_f_normal, curr_coords_b_normal)
-                new_coords_f_normal = IC_f_ini.newCartesian(curr_coords_f_normal, dq_f / nDiv)
-                new_coords_b_normal = IC_b_ini.newCartesian(curr_coords_b_normal, dq_b / nDiv)
-
+                new_coords_f_normal = IC_f_ini.newCartesian(
+                    curr_coords_f_normal, dq_f / nDiv
+                )
+                new_coords_b_normal = IC_b_ini.newCartesian(
+                    curr_coords_b_normal, dq_b / nDiv
+                )
 
                 curr_coords_f_normal = new_coords_f_normal.copy()
                 curr_coords_b_normal = new_coords_b_normal.copy()
-
 
                 # ------------------Geting condition numbers here-------------------------
                 print("getting GMatrixes from IC objects")
                 G_f_ini = IC_f_ini.GMatrix(new_coords_f_normal)
                 eig_f_ini, vec_f_ini = np.linalg.eigh(G_f_ini)
 
-                G_b_ini = IC_b_ini.GMatrix(new_coords_f_normal)
+                G_b_ini = IC_b_ini.GMatrix(new_coords_b_normal)
                 eig_b_ini, vec_b_ini = np.linalg.eigh(G_b_ini)
 
                 print("\n-------------------------------------------------------------")
                 con_num_if = np.real(eig_f_ini[-1] / eig_f_ini[0])
                 con_num_ib = np.real(eig_b_ini[-1] / eig_b_ini[0])
-                print("Condition number of initial forward %f" %con_num_if)
-                print("Condition number of initial backward %f" %con_num_ib)
-                #CN_ratio = con_num_if/np.mean(cn_info['Initial Forward IC'])
-                #print(CN_ratio)
-                cn_info['Initial Forward IC'].append(con_num_if)
-                cn_info['Initial Backward IC'].append(con_num_ib)
+                print("Condition number of initial forward %f" % con_num_if)
+                print("Condition number of initial backward %f" % con_num_ib)
+                # CN_ratio = con_num_if/np.mean(cn_info['Initial Forward IC'])
+                # print(CN_ratio)
+                cn_info["Initial Forward IC"].append(con_num_if)
+                cn_info["Initial Backward IC"].append(con_num_ib)
                 # --------------------Done collecting condition numbers ---------------------
-                #print("b Eigvals", np.real(eig_b[-5:]))
-                #print("b Largest Eigval: %f" %np.real(eig_b[-1]))
-                #print("Lergest vector:", vec[0])
-                #print("b Smallest Eigval: %f" %np.real(eig_b[0]))
-                #print("Smallets vector:", vec[-1])
+                # print("b Eigvals", np.real(eig_b[-5:]))
+                # print("b Largest Eigval: %f" %np.real(eig_b[-1]))
+                # print("Lergest vector:", vec[0])
+                # print("b Smallest Eigval: %f" %np.real(eig_b[0]))
+                # print("Smallets vector:", vec[-1])
                 IC_f_ini.build_dlc(curr_coords_f_normal)
                 IC_b_ini.build_dlc(curr_coords_b_normal)
 
                 coord_list_f.append(curr_coords_f_normal)
                 coord_list_b.append(curr_coords_b_normal)
-                nDiv -= 2 
+                nDiv -= 2
             coord_list = coord_list_f + coord_list_b[::-1]
             json_str = json.dumps(cn_info, indent=4)
-            with open('cn_info.json', "w") as f:
+            with open("cn_info.json", "w") as f:
                 f.write(json_str)
             print(
                 "Error in final interpolated vs. product structure (%s):" % ic,
@@ -162,197 +165,23 @@ class Interpolate:
             self.simple_xyz.xyzs = [
                 coords.reshape(-1, 3) / ang2bohr for coords in coord_list
             ]
+
+            smoothed_M = EqualSpacing(self.simple_xyz)[
+                np.array(
+                    [
+                        int(round(i))
+                        for i in np.linspace(0, len(self.simple_xyz) - 1, self.params.frames)
+                    ]
+                )
+            ]
+
             xyz_dir = os.path.join(self.dir, "interpolated")
             if not os.path.exists(xyz_dir):
                 os.makedirs(xyz_dir)
             self.simple_xyz.write(
                 os.path.join(xyz_dir, "simple_interpolated_%s.xyz" % ic)
             )
-
-    def fill(self, cart1, cart2, ic, final_diff, mean_diff):
-        print("Mean difference: %.5f" % mean_diff)
-        print("Max difference: %.5f" % final_diff)
-        print("filling...")
-        reac_coords = cart1.copy()
-        prod_coords = cart2.copy()
-        filled_fwd_list = []
-        filled_bwd_list = []
-        M_ini = copy.deepcopy(self.M_ini)
-        M_fin = copy.deepcopy(self.M_fin)
-        M_ini.xyzs = [cart1.reshape(-1, 3) / ang2bohr]
-        M_fin.xyzs = [cart2.reshape(-1, 3) / ang2bohr]
-        CoordClass, connect, addacart = self.coordsys_dict[ic.lower()]
-        nDiv = int(final_diff // mean_diff)
-        nDiv += nDiv % 2
-        for i in range(nDiv // 2):
-            IC_fwd = CoordClass(
-                M_ini, build=True, connect=connect, addcart=addacart, constraints=None
-            )
-            IC_bwd = CoordClass(
-                M_fin, build=True, connect=connect, addcart=addacart, constraints=None
-            )
-            if i == 0:
-                dq_fwd = IC_fwd.calcDiff(reac_coords, prod_coords)
-                dq_bwd = IC_bwd.calcDiff(prod_coords, reac_coords)
-            else:
-                dq_fwd = IC_fwd.calcDiff(new_bwd_coords, new_fwd_coords)
-                dq_bwd = IC_bwd.calcDiff(new_fwd_coords, new_bwd_coords)
-            interval = nDiv - 2 * i
-            step_fwd = dq_fwd / interval
-            step_bwd = dq_bwd / interval
-            if interval == 2:
-                new_fwd_coords = IC_fwd.newCartesian(reac_coords, step_fwd)
-                filled_fwd_list.append(new_fwd_coords)
-                new_bwd_coords = IC_bwd.newCartesian(prod_coords, step_bwd)
-                filled_bwd_list.append(new_bwd_coords)
-                final_diff = np.linalg.norm(new_bwd_coords - new_fwd_coords)
-                if final_diff / mean_diff > 1.0:
-                    filled_list = self.fill(
-                        new_fwd_coords, new_bwd_coords, ic, final_diff, mean_diff
-                    )
-                    filled_fwd_list += filled_list
-
-                break
-            else:
-                new_fwd_coords = IC_fwd.newCartesian(reac_coords, step_fwd)
-                new_bwd_coords = IC_bwd.newCartesian(prod_coords, step_bwd)
-                reac_coords = new_fwd_coords.copy()
-                prod_coords = new_bwd_coords.copy()
-
-                filled_fwd_list.append(new_fwd_coords)
-                filled_bwd_list.append(new_bwd_coords)
-
-                # fwd_diff = np.linalg.norm(
-                #    reac_coords.reshape(-1, 3) - new_fwd_coords.reshape(-1, 3),
-                #    axis=1,
-                # )
-
-                M_ini.xyzs = [new_fwd_coords.reshape(-1, 3) / ang2bohr]
-                M_fin.xyzs = [new_bwd_coords.reshape(-1, 3) / ang2bohr]
-        filled_list = filled_fwd_list + filled_bwd_list[::-1]
-        return filled_list
-
-    def mix_interpolate(self):
-        for ic in self.params.coordsys:
-            CoordClass, connect, addcart = self.coordsys_dict[ic.lower()]
-
-            nDiv = self.params.frames
-            nDiv += nDiv%2
-            reac_coords = self.reac.copy()
-            prod_coords = self.prod.copy()
-            fwd_coord_list = [reac_coords]
-            fwd_cart_diff = []
-            bwd_coord_list = [prod_coords]
-            bwd_cart_diff = []
-            M_ini = copy.deepcopy(self.M_ini)
-            M_fin = copy.deepcopy(self.M_fin)
-            for i in range(nDiv // 2):
-                IC_fwd = CoordClass(
-                    M_ini,
-                    build=True,
-                    connect=connect,
-                    addcart=addcart,
-                    constraints=None,
-                )
-                IC_bwd = CoordClass(
-                    M_fin,
-                    build=True,
-                    connect=connect,
-                    addcart=addcart,
-                    constraints=None,
-                )
-
-                if i == 0:
-                    dq_fwd = IC_fwd.calcDiff(self.prod, self.reac)
-                    dq_bwd = IC_bwd.calcDiff(self.reac, self.prod)
-                else:
-                    dq_fwd = IC_fwd.calcDiff(new_bwd_coords, new_fwd_coords)
-                    dq_bwd = IC_bwd.calcDiff(new_fwd_coords, new_bwd_coords)
-
-                interval = nDiv - 2 * i
-                step_fwd = dq_fwd / interval
-                step_bwd = dq_bwd / interval
-                if interval == 2:
-                    mean_diff = np.mean((fwd_diff_mean + bwd_diff_mean) / 2)
-                    new_fwd_coords = IC_fwd.newCartesian(reac_coords, step_fwd)
-                    fwd_coord_list.append(new_fwd_coords)
-                    new_bwd_coords = IC_bwd.newCartesian(prod_coords, step_bwd)
-                    bwd_coord_list.append(new_bwd_coords)
-                    final_diff = np.linalg.norm(fwd_coord_list[-1] - bwd_coord_list[-1])
-                    filled_list = self.fill(
-                        new_fwd_coords, new_bwd_coords, ic, final_diff, mean_diff
-                    )
-                    fwd_coord_list += filled_list
-                    break
-                else:
-                    new_fwd_coords = IC_fwd.newCartesian(reac_coords, step_fwd)
-                    new_bwd_coords = IC_bwd.newCartesian(prod_coords, step_bwd)
-
-                    fwd_diff = np.linalg.norm(
-                        reac_coords.reshape(-1, 3) - new_fwd_coords.reshape(-1, 3),
-                        axis=1,
-                    )
-                    fwd_cart_diff.append(fwd_diff)
-                    fwd_diff_mean = np.mean(fwd_cart_diff, axis=0)
-                    fwd_coord_list.append(new_fwd_coords)
-                    reac_coords = new_fwd_coords.copy()
-
-                    bwd_diff = np.linalg.norm(
-                        prod_coords.reshape(-1, 3) - new_bwd_coords.reshape(-1, 3),
-                        axis=1,
-                    )
-                    print("iteration %i" % i)
-                    print("fwd_bwd_diffes", np.mean(fwd_diff), np.mean(bwd_diff))
-                    bwd_cart_diff.append(bwd_diff)
-                    bwd_diff_mean = np.mean(bwd_cart_diff, axis=0)
-                    bwd_coord_list.append(new_bwd_coords)
-                    prod_coords = new_bwd_coords.copy()
-
-                    M_ini.xyzs = [new_fwd_coords.reshape(-1, 3) / ang2bohr]
-                    M_fin.xyzs = [new_bwd_coords.reshape(-1, 3) / ang2bohr]
-
-            coord_list = fwd_coord_list + bwd_coord_list[::-1]
-
-            self.interpolated_dict["mix_" + ic] = np.array(coord_list)
-            self.mix_xyz.xyzs = [
-                coords.reshape(-1, 3) / ang2bohr for coords in coord_list
-            ]
-            tot_len = len(self.mix_xyz)
-            self.fwd_M.xyzs = [
-                coords.reshape(-1, 3) / ang2bohr for coords in fwd_coord_list
-            ]
-            self.bwd_M.xyzs = [
-                coords.reshape(-1, 3) / ang2bohr for coords in bwd_coord_list
-            ]
-            if self.params.equal_space:
-                print("Spacing frames evenly.")
-                final_M = EqualSpacing(self.mix_xyz)[
-                    np.array(
-                        [
-                            int(round(i))
-                            for i in np.linspace(0, tot_len - 1, self.params.frames)
-                        ]
-                    )
-                ]
-            else:
-                final_M = self.mix_xyz[
-                    np.array(
-                        [
-                            int(round(i))
-                            for i in np.linspace(0, tot_len - 1, self.params.frames)
-                        ]
-                    )
-                ]
-            xyz_dir = os.path.join(self.dir, "interpolated")
-            if not os.path.exists(xyz_dir):
-                os.makedirs(xyz_dir)
-            final_M.write(os.path.join(xyz_dir, "mixed_interpolated_%s.xyz" % ic))
-            self.fwd_M.write(
-                os.path.join(xyz_dir, "mixed_fwd_interpolated_%s.xyz" % ic)
-            )
-            self.bwd_M.write(
-                os.path.join(xyz_dir, "mixed_bwd_interpolated_%s.xyz" % ic)
-            )
+            smoothed_M.write(os.path.join(xyz_dir, "smoothed_interpolated_%s.xyz" % ic))
 
     def calculate_energies(self, interpolation_type=None):
         print("Calculating Energies...")
@@ -425,7 +254,7 @@ def main():
     TRIC.simple_interpolate()
     # TRIC.calculate_energies("simple")
     # TRIC.fwd_bwd_interpolate()
-    #TRIC.mix_interpolate()
+    # TRIC.mix_interpolate()
     # TRIC.calculate_energies("mix")
     # TRIC.calculate_energies("fwd_bwd")
 
