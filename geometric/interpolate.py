@@ -72,6 +72,7 @@ class Interpolate:
 
         for ic in self.params.coordsys:
             CoordClass, connect, addcart = self.coordsys_dict[ic.lower()]
+            print("first IC_f_ini")
             IC_f_ini = CoordClass(
                 self.M_ini,
                 build=True,
@@ -79,7 +80,7 @@ class Interpolate:
                 addcart=addcart,
                 constraints=None,
             )
-
+            print("now IC_b_ini")
             IC_b_ini = CoordClass(
                 self.M_fin,
                 build=True,
@@ -87,132 +88,69 @@ class Interpolate:
                 addcart=addcart,
                 constraints=None,
             )
+            print("Calculating initial difference")
             dq_f = IC_f_ini.calcDiff(self.prod, self.reac)
             dq_b = IC_b_ini.calcDiff(self.reac, self.prod)
             nDiv = self.params.frames
+            nDiv += nDiv % 2
+
             curr_coords_f_normal = self.reac.copy()
             curr_coords_b_normal = self.prod.copy()
-            coord_list = [curr_coords_f_normal]
+
+            coord_list_f = [curr_coords_f_normal]
+            coord_list_b = [curr_coords_b_normal]
+                
             M_ini = copy.deepcopy(self.M_ini)
             M_fin = copy.deepcopy(self.M_fin)
-            M_ini_upd = copy.deepcopy(self.M_ini)
-            M_fin_upd = copy.deepcopy(self.M_fin)
 
             cn_info = {'Initial Forward IC':[],
                        'Initial Backward IC':[],
                        'New Forward IC':[],
                        'New Backward IC':[],
                        }
-                       #'Updated Forward IC':[],
-                       #'Updated Backward IC':[]}
 
-            for i in range(nDiv):
-                IC_f_new = CoordClass(
-                    M_ini,
-                    build=True,
-                    connect=connect,
-                    addcart=addcart,
-                    constraints=None,
-                )
+            for i in range(nDiv//2):
 
-                IC_b_new = CoordClass(
-                    M_fin,
-                    build=True,
-                    connect=connect,
-                    addcart=addcart,
-                    constraints=None,
-                )
-
-                #IC_f_upd =  CoordClass(
-                #    M_ini_upd,
-                #    build=True,
-                #    connect=connect,
-                #    addcart=addcart,
-                #    constraints=None,
-                #)
-
-                #IC_b_upd =  CoordClass(
-                #    M_fin_upd,
-                #    build=True,
-                #    connect=connect,
-                #    addcart=addcart,
-                #    constraints=None,
-                #)
-
-                #if i != 0:
-                #    dq_upd_f = IC_f_upd.calcDiff(curr_coords_b_upd, curr_coords_f_upd)
-                #    dq_upd_b = IC_b_upd.calcDiff(curr_coords_f_upd, curr_coords_b_upd)
-                #    new_coords_f_upd = IC_f_upd.newCartesian(curr_coords_f_upd, dq_upd_f / (nDiv - i))
-                #    new_coords_b_upd = IC_b_upd.newCartesian(curr_coords_b_upd, dq_upd_b / (nDiv - i))
-
-                #    curr_coords_f_upd = new_coords_f_upd.copy()
-                #    curr_coords_b_upd = new_coords_b_upd.copy()
-
+                dq_f = IC_f_ini.calcDiff(curr_coords_b_normal, curr_coords_f_normal)
+                dq_b = IC_b_ini.calcDiff(curr_coords_f_normal, curr_coords_b_normal)
                 new_coords_f_normal = IC_f_ini.newCartesian(curr_coords_f_normal, dq_f / nDiv)
                 new_coords_b_normal = IC_b_ini.newCartesian(curr_coords_b_normal, dq_b / nDiv)
 
 
-
-                coord_list.append(new_coords_f_normal)
                 curr_coords_f_normal = new_coords_f_normal.copy()
                 curr_coords_b_normal = new_coords_b_normal.copy()
 
 
                 # ------------------Geting condition numbers here-------------------------
+                print("getting GMatrixes from IC objects")
                 G_f_ini = IC_f_ini.GMatrix(new_coords_f_normal)
                 eig_f_ini, vec_f_ini = np.linalg.eigh(G_f_ini)
 
                 G_b_ini = IC_b_ini.GMatrix(new_coords_f_normal)
                 eig_b_ini, vec_b_ini = np.linalg.eigh(G_b_ini)
 
-                G_f_new = IC_f_new.GMatrix(new_coords_f_normal)
-                eig_f_new, vec_f_new = np.linalg.eigh(G_f_new)
-
-                G_b_new = IC_b_new.GMatrix(new_coords_f_normal)
-                eig_b_new, vec_b_new = np.linalg.eigh(G_b_new)
-                #if i != 0:
-                #    G_f_upd = IC_f_upd.GMatrix(new_coords_f_upd)
-                #    eig_f_upd, vec_f_upd = np.linalg.eigh(G_f_upd)
-
-                #    G_b_upd = IC_b_upd.GMatrix(new_coords_b_upd)
-                #    eig_b_upd, vec_b_upd = np.linalg.eigh(G_b_upd)
                 print("\n-------------------------------------------------------------")
-                #print("G", G)
                 con_num_if = np.real(eig_f_ini[-1] / eig_f_ini[0])
                 con_num_ib = np.real(eig_b_ini[-1] / eig_b_ini[0])
-                con_num_nf = np.real(eig_f_new[-1] / eig_f_new[0])
-                con_num_nb = np.real(eig_b_new[-1] / eig_b_new[0])
-                #if i != 0:
-                #    con_num_uf = np.real(eig_b_upd[-1] / eig_b_upd[0])
-                #    con_num_ub = np.real(eig_b_upd[-1] / eig_b_upd[0])
-
-                #    cn_info['Updated Forward IC'].append(con_num_uf)
-                #    cn_info['Updated Backward IC'].append(con_num_ub)
-                print("eigen vectors", vec_f_ini.shape, eig_f_ini.shape)
                 print("Condition number of initial forward %f" %con_num_if)
                 print("Condition number of initial backward %f" %con_num_ib)
-                print("Condition number of new forward %f" %con_num_nf)
-                print("Condition number of new backward %f" %con_num_nb)
+                #CN_ratio = con_num_if/np.mean(cn_info['Initial Forward IC'])
+                #print(CN_ratio)
                 cn_info['Initial Forward IC'].append(con_num_if)
                 cn_info['Initial Backward IC'].append(con_num_ib)
-                cn_info['New Forward IC'].append(con_num_nf)
-                cn_info['New Backward IC'].append(con_num_nb)
-                #cn_info['Updated Forward IC'].append(con_num_uf)
-                #cn_info['Updated Backward IC'].append(con_num_ub)
                 # --------------------Done collecting condition numbers ---------------------
                 #print("b Eigvals", np.real(eig_b[-5:]))
                 #print("b Largest Eigval: %f" %np.real(eig_b[-1]))
                 #print("Lergest vector:", vec[0])
                 #print("b Smallest Eigval: %f" %np.real(eig_b[0]))
                 #print("Smallets vector:", vec[-1])
-                M_ini.xyzs = [new_coords_f_normal.reshape(-1, 3) / ang2bohr]
-                M_fin.xyzs = [new_coords_b_normal.reshape(-1, 3) / ang2bohr]
-                #if i == 0 :
-                #    curr_coords_f_upd = new_coords_f_normal.copy()
-                #    curr_coords_b_upd = new_coords_b_normal.copy()
-                #else:
-                #    M_ini_upd.xyzs = [new_coords_f_upd.reshape(-1, 3) / ang2bohr]
-                #    M_fin_upd.xyzs = [new_coords_b_upd.reshape(-1, 3) / ang2bohr]
+                IC_f_ini.build_dlc(curr_coords_f_normal)
+                IC_b_ini.build_dlc(curr_coords_b_normal)
+
+                coord_list_f.append(curr_coords_f_normal)
+                coord_list_b.append(curr_coords_b_normal)
+                nDiv -= 2 
+            coord_list = coord_list_f + coord_list_b[::-1]
             json_str = json.dumps(cn_info, indent=4)
             with open('cn_info.json', "w") as f:
                 f.write(json_str)
