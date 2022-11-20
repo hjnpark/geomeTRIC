@@ -69,108 +69,187 @@ class Interpolate:
         self.prod = self.M_fin.xyzs[0].flatten() * ang2bohr
 
     def simple_interpolate(self):
+         PRIMIC, connect, addcart = self.coordsys_dict["prim"]
+         PRIM = PRIMIC(
+             self.M,
+             build=True,
+             connect=connect,
+             addcart=addcart,
+             constraints=None,
+         )
+
+         for ic in self.params.coordsys:
+             CoordClass, connect, addcart = self.coordsys_dict[ic.lower()]
+
+             IC = CoordClass(
+                 self.M,
+                 build=True,
+                 connect=connect,
+                 addcart=addcart,
+                 Prims=PRIM,
+                 constraints=None,
+             )
+
+             dq = IC.calcDiff(self.prod, self.reac)
+
+             nDiv = self.params.frames
+
+             curr_coords = self.reac.copy()
+
+             coord_list = []
+
+             cn_info = {"Forward IC": []}
+             for i in range(nDiv):
+                 # ------------------Geting condition numbers here-------------------------
+
+                 coord_list.append(curr_coords)
+
+                 IC.build_dlc_0(curr_coords)
+                 dq = IC.calcDiff(self.prod, curr_coords)
+                 new_coords = IC.newCartesian(curr_coords, dq / nDiv)
+
+
+                 print("getting GMatrixes from IC objects")
+                 G_f_ini = IC.GMatrix(new_coords)
+                 eig_f_ini, vec_f_ini = np.linalg.eigh(G_f_ini)
+
+                 print("\n-------------------------------------------------------------")
+                 con_num_if = np.real(eig_f_ini[-1] / eig_f_ini[0])
+                 print("Condition number of forward %f" % con_num_if)
+                 cn_info["Forward IC"].append(con_num_if)
+
+                 curr_coords = new_coords.copy()
+
+                 nDiv -= 1
+
+             self.simple_xyz.xyzs = [
+                 coords.reshape(-1, 3) / ang2bohr for coords in coord_list
+             ]
+
+             rough_M = copy.deepcopy(self.simple_xyz)
+
+             json_str = json.dumps(cn_info, indent=4)
+             with open("simple_cn_info.json", "w") as f:
+                 f.write(json_str)
+             print(
+                 "Error in final interpolated vs. product structure (%s):" % ic,
+                 np.linalg.norm(curr_coords - self.prod),
+             )
+             self.interpolated_dict["simple_" + ic] = np.array(coord_list)
+             equal_spaced_M = EqualSpacing(self.simple_xyz)[
+                 np.array(
+                     [
+                         int(round(i))
+                         for i in np.linspace(
+                             0, len(self.simple_xyz) - 1, self.params.frames
+                         )
+                     ]
+                 )
+             ]
+
+             xyz_dir = os.path.join(self.dir, "interpolated")
+             if not os.path.exists(xyz_dir):
+                 os.makedirs(xyz_dir)
+             self.simple_xyz.write(
+                 os.path.join(xyz_dir, "simple_interpolated_%s.xyz" % ic)
+             )
+             equal_spaced_M.write(
+                 os.path.join(xyz_dir, "simple_smoothed_interpolated_%s.xyz" % ic)
+             )
+
+
+    def mixed_interpolate(self):
+        PRIMIC, connect, addcart = self.coordsys_dict["prim"]
+        PRIM = PRIMIC(
+            self.M,
+            build=True,
+            connect=connect,
+            addcart=addcart,
+            constraints=None,
+        )
 
         for ic in self.params.coordsys:
             CoordClass, connect, addcart = self.coordsys_dict[ic.lower()]
-            print("first IC_f_ini")
-            IC_f_ini = CoordClass(
-                self.M_ini,
+
+            IC = CoordClass(
+                self.M,
                 build=True,
                 connect=connect,
                 addcart=addcart,
+                Prims=PRIM,
                 constraints=None,
             )
-            print("now IC_b_ini")
-            IC_b_ini = CoordClass(
-                self.M_fin,
-                build=True,
-                connect=connect,
-                addcart=addcart,
-                constraints=None,
-            )
-            print("Calculating initial difference")
-            dq_f = IC_f_ini.calcDiff(self.prod, self.reac)
-            dq_b = IC_b_ini.calcDiff(self.reac, self.prod)
+
+            dq_f = IC.calcDiff(self.prod, self.reac)
+            dq_b = IC.calcDiff(self.reac, self.prod)
+
             nDiv = self.params.frames
+
+            curr_coords_f = self.reac.copy()
+            curr_coords_b = self.prod.copy()
+
+            coord_list_f = []
+            coord_list_b = []
+
+            cn_info = {"Forward IC": [], "Backward IC": []}
             nDiv += nDiv % 2
-
-            curr_coords_f_normal = self.reac.copy()
-            curr_coords_b_normal = self.prod.copy()
-
-            coord_list_f = [curr_coords_f_normal]
-            coord_list_b = [curr_coords_b_normal]
-
-            M_ini = copy.deepcopy(self.M_ini)
-            M_fin = copy.deepcopy(self.M_fin)
-
-            cn_info = {
-                "Initial Forward IC": [],
-                "Initial Backward IC": [],
-                "New Forward IC": [],
-                "New Backward IC": [],
-            }
-
-            for i in range(nDiv // 2):
-
-                dq_f = IC_f_ini.calcDiff(curr_coords_b_normal, curr_coords_f_normal)
-                dq_b = IC_b_ini.calcDiff(curr_coords_f_normal, curr_coords_b_normal)
-                new_coords_f_normal = IC_f_ini.newCartesian(
-                    curr_coords_f_normal, dq_f / nDiv
-                )
-                new_coords_b_normal = IC_b_ini.newCartesian(
-                    curr_coords_b_normal, dq_b / nDiv
-                )
-
-                curr_coords_f_normal = new_coords_f_normal.copy()
-                curr_coords_b_normal = new_coords_b_normal.copy()
-
+            for i in range(nDiv//2):
                 # ------------------Geting condition numbers here-------------------------
+
+                coord_list_f.append(curr_coords_f)
+                coord_list_b.append(curr_coords_b)
+
+                IC.build_dlc_0(curr_coords_f)
+                dq_f = IC.calcDiff(curr_coords_b, curr_coords_f)
+                new_coords_f = IC.newCartesian(curr_coords_f, dq_f / nDiv)
+
+                IC.build_dlc_0(curr_coords_b)
+                dq_b = IC.calcDiff(curr_coords_f, curr_coords_b)
+                new_coords_b = IC.newCartesian(curr_coords_b, dq_b / nDiv)
+
                 print("getting GMatrixes from IC objects")
-                G_f_ini = IC_f_ini.GMatrix(new_coords_f_normal)
+                G_f_ini = IC.GMatrix(new_coords_f)
                 eig_f_ini, vec_f_ini = np.linalg.eigh(G_f_ini)
 
-                G_b_ini = IC_b_ini.GMatrix(new_coords_b_normal)
+                G_b_ini = IC.GMatrix(new_coords_b)
                 eig_b_ini, vec_b_ini = np.linalg.eigh(G_b_ini)
 
                 print("\n-------------------------------------------------------------")
                 con_num_if = np.real(eig_f_ini[-1] / eig_f_ini[0])
                 con_num_ib = np.real(eig_b_ini[-1] / eig_b_ini[0])
-                print("Condition number of initial forward %f" % con_num_if)
-                print("Condition number of initial backward %f" % con_num_ib)
-                # CN_ratio = con_num_if/np.mean(cn_info['Initial Forward IC'])
-                # print(CN_ratio)
-                cn_info["Initial Forward IC"].append(con_num_if)
-                cn_info["Initial Backward IC"].append(con_num_ib)
-                # --------------------Done collecting condition numbers ---------------------
-                # print("b Eigvals", np.real(eig_b[-5:]))
-                # print("b Largest Eigval: %f" %np.real(eig_b[-1]))
-                # print("Lergest vector:", vec[0])
-                # print("b Smallest Eigval: %f" %np.real(eig_b[0]))
-                # print("Smallets vector:", vec[-1])
-                IC_f_ini.build_dlc(curr_coords_f_normal)
-                IC_b_ini.build_dlc(curr_coords_b_normal)
+                print("Condition number of forward %f" % con_num_if)
+                print("Condition number of backward %f" % con_num_ib)
+                cn_info["Forward IC"].append(con_num_if)
+                cn_info["Backward IC"].append(con_num_ib)
 
-                coord_list_f.append(curr_coords_f_normal)
-                coord_list_b.append(curr_coords_b_normal)
+                curr_coords_f = new_coords_f.copy()
+                curr_coords_b = new_coords_b.copy()
+
                 nDiv -= 2
+
             coord_list = coord_list_f + coord_list_b[::-1]
-            json_str = json.dumps(cn_info, indent=4)
-            with open("cn_info.json", "w") as f:
-                f.write(json_str)
-            print(
-                "Error in final interpolated vs. product structure (%s):" % ic,
-                np.linalg.norm(curr_coords_f_normal - self.prod),
-            )
-            self.interpolated_dict["simple_" + ic] = np.array(coord_list)
+
             self.simple_xyz.xyzs = [
                 coords.reshape(-1, 3) / ang2bohr for coords in coord_list
             ]
 
-            smoothed_M = EqualSpacing(self.simple_xyz)[
+            rough_M = copy.deepcopy(self.simple_xyz)
+
+            json_str = json.dumps(cn_info, indent=4)
+            with open("mixed_cn_info.json", "w") as f:
+                f.write(json_str)
+            print(
+                "Difference in forward vs. backward interpolation (%s):" % ic,
+                np.linalg.norm(curr_coords_f - curr_coords_b),
+            )
+            self.interpolated_dict["mixed_" + ic] = np.array(coord_list)
+            equal_spaced_M = EqualSpacing(self.simple_xyz)[
                 np.array(
                     [
                         int(round(i))
-                        for i in np.linspace(0, len(self.simple_xyz) - 1, self.params.frames)
+                        for i in np.linspace(
+                            0, len(self.simple_xyz) - 1, self.params.frames
+                        )
                     ]
                 )
             ]
@@ -179,9 +258,11 @@ class Interpolate:
             if not os.path.exists(xyz_dir):
                 os.makedirs(xyz_dir)
             self.simple_xyz.write(
-                os.path.join(xyz_dir, "simple_interpolated_%s.xyz" % ic)
+                os.path.join(xyz_dir, "mixed_interpolated_%s.xyz" % ic)
             )
-            smoothed_M.write(os.path.join(xyz_dir, "smoothed_interpolated_%s.xyz" % ic))
+            equal_spaced_M.write(
+                os.path.join(xyz_dir, "mixed_smoothed_interpolated_%s.xyz" % ic)
+            )
 
     def calculate_energies(self, interpolation_type=None):
         print("Calculating Energies...")
@@ -251,7 +332,10 @@ def main():
     M, engine = get_molecule_engine(**args_dict)
 
     TRIC = Interpolate(params, M, engine)
-    TRIC.simple_interpolate()
+    if params.type == 'simple':
+        TRIC.simple_interpolate()
+    else:
+        TRIC.mixed_interpolate()
     # TRIC.calculate_energies("simple")
     # TRIC.fwd_bwd_interpolate()
     # TRIC.mix_interpolate()

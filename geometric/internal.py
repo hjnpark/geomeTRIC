@@ -2792,7 +2792,7 @@ class PrimitiveInternalCoordinates(InternalCoordinates):
 
     
 class DelocalizedInternalCoordinates(InternalCoordinates):
-    def __init__(self, molecule, imagenr=0, build=False, connect=False, addcart=False, constraints=None, cvals=None, remove_tr=False, cart_only=False, conmethod=0):
+    def __init__(self, molecule, Prims = None, imagenr=0, build=False, connect=False, addcart=False, constraints=None, cvals=None, remove_tr=False, cart_only=False, conmethod=0):
         super(DelocalizedInternalCoordinates, self).__init__()
         # cart_only is just because of how I set up the class structure.
         if cart_only: return
@@ -2808,7 +2808,11 @@ class DelocalizedInternalCoordinates(InternalCoordinates):
         # Add Cartesian coordinates to all.
         self.addcart = addcart
         # The DLC contains an instance of primitive internal coordinates.
-        self.Prims = PrimitiveInternalCoordinates(molecule, connect=connect, addcart=addcart, constraints=constraints, cvals=cvals)
+        if not Prims: 
+            self.Prims = PrimitiveInternalCoordinates(molecule, connect=connect, addcart=addcart, constraints=constraints, cvals=cvals)
+        else:
+            print("Primitive Initernal Coordinates object is given.")
+            self.Prims = Prims
         self.frags = self.Prims.frags
         self.na = molecule.na
         # Whether constraints have been enforced previously
