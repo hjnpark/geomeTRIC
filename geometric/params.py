@@ -225,9 +225,6 @@ class IntpParams(object):
         self.engine = kwargs.get('engine','psi4')
         self.workers = kwargs.get('workers', 4)
         self.equal_space = kwargs.get('equal_space',False)
-        self.type = kwargs.get('type', 'simple')
-        if self.type not in types_list:
-            raise RuntimeError('%s interpolation type is not available. Please choose between "simple" and "mixed".' %self.type)
 
         for ic in self.coordsys:
             if ic not in coordsys_list:
@@ -439,7 +436,6 @@ def parse_interpolate_args(*args):
     grp_univ.add_argument('input', type=str, help='REQUIRED positional argument: Quantum chemistry or MM input file for single point energy calculations.\n ')
     grp_univ.add_argument('coords', type=str, help='REQUIRED positional argument: Coordinate file to override the QM input file / xyz or PDB file. The FIRST and LAST frames will be used.\n ')
     grp_univ.add_argument('constraints', type=str, nargs='?', help='OPTIONAL positional argument: File containing constraint specifications and/or additional options\n ')
-    grp_univ.add_argument('--type', type=str, help='Interpolation type. A "simple" (simple one way interpolation) and "mixed" (starting with the two end points) are available (default = simple).')
     grp_univ.add_argument('--frames', type=int, help='Number of frames for the interpolation result trajectory(default = 20).')
     grp_univ.add_argument('--equal_space', type=str2bool, help='Provide "yes" to space between frames equally at the end of the interpolation.\n')
     grp_univ.add_argument('--coordsys', nargs="+", help='Coordinate systems for the interpolation. Multiple of them can be provided (default = all):\n'

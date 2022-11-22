@@ -1554,13 +1554,15 @@ class MultiDihedral(PrimitiveCoordinate): # pragma: no cover
         raise NotImplementedError("Second derivatives have not been implemented for IC type %s" % self.__name__)
 
 class OutOfPlane(PrimitiveCoordinate):
-    def __init__(self, a, b, c, d):
+    def __init__(self, a, b, c, d, warn = True):
         self.a = a
         self.b = b
         self.c = c
         self.d = d
         self.isAngular = True
         self.isPeriodic = True
+        self.warn = warn
+
         if len({a, b, c, d}) != 4:
             raise RuntimeError('a, b, c and d must be different')
 
@@ -1571,7 +1573,7 @@ class OutOfPlane(PrimitiveCoordinate):
         if type(self) is not type(other): return False
         if self.a == other.a:
             if {self.b, self.c, self.d} == {other.b, other.c, other.d}:
-                if [self.b, self.c, self.d] != [other.b, other.c, other.d]:
+                if [self.b, self.c, self.d] != [other.b, other.c, other.d] and self.warn:
                     logger.warning("Warning: OutOfPlane atoms are the same, ordering is different\n")
                 return True
         #     if self.b == other.b:
@@ -2003,7 +2005,7 @@ class InternalCoordinates(object):
             xyz1 = xyz2.copy()
             
 class PrimitiveInternalCoordinates(InternalCoordinates):
-    def __init__(self, molecule, connect=False, addcart=False, constraints=None, cvals=None, **kwargs):
+    def __init__(self, molecule, connect=False, addcart=False, constraints=None, cvals=None, warn=True, **kwargs):
         super(PrimitiveInternalCoordinates, self).__init__()
         self.connect = connect
         self.addcart = addcart
@@ -2014,6 +2016,7 @@ class PrimitiveInternalCoordinates(InternalCoordinates):
         self.elem = molecule.elem
         # List of fragments as determined by residue ID, distance criteria or bond order
         self.frags = []
+        self.warn = warn
         for i in range(len(molecule)):
             self.makePrimitives(molecule[i], connect, addcart)
         # Assume we're using the first image for constraints
@@ -2225,7 +2228,7 @@ class PrimitiveInternalCoordinates(InternalCoordinates):
                                 if np.abs(np.cos(Ang2.value(coords))) > LinThre: continue
                                 if np.abs(np.dot(Ang1.normal_vector(coords), Ang2.normal_vector(coords))) > LinThre:
                                     self.delete(Angle(i, b, j))
-                                    self.add(OutOfPlane(b, i, j, k))
+                                    self.add(OutOfPlane(b, i, j, k, warn=self.warn))
                                     break
                                 
         # Find groups of atoms that are in straight lines
@@ -2811,7 +2814,6 @@ class DelocalizedInternalCoordinates(InternalCoordinates):
         if not Prims: 
             self.Prims = PrimitiveInternalCoordinates(molecule, connect=connect, addcart=addcart, constraints=constraints, cvals=cvals)
         else:
-            print("Primitive Initernal Coordinates object is given.")
             self.Prims = Prims
         self.frags = self.Prims.frags
         self.na = molecule.na
