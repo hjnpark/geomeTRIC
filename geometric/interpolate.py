@@ -1,4 +1,5 @@
 import os, sys, json, copy, tempfile
+import networkx as nx
 
 from .params import parse_interpolate_args, IntpParams
 from .prepare import get_molecule_engine
@@ -38,6 +39,7 @@ class Interpolate:
 
         # Coordinates in Angstrom
         self.M = M
+        self.M_updated = M[0]
 
         self.interpolated_dict = {}
         self.Energy_dict = {}
@@ -52,40 +54,43 @@ class Interpolate:
         M_reac = self.M[0]
         M_prod = self.M[-1]
         M_reac.build_topology()
+        M_reac.build_bonds()
         M_prod.build_topology()
+        M_prod.build_bonds()
 
         if len(M_reac.molecules) >= len(M_reac.molecules):
             self.M_ini = copy.deepcopy(M_reac)
             self.M_fin = copy.deepcopy(M_prod)
 
-            #self.M_fin = copy.deepcopy(M_reac)
-            #self.M_ini = copy.deepcopy(M_prod)
         else:
             self.M_ini = copy.deepcopy(M_prod)
             self.M_fin = copy.deepcopy(M_reac)
 
-            #self.M_ini = copy.deepcopy(M_reac)
-            #self.M_fin = copy.deepcopy(M_prod)
 
-        self.simple_xyz = self.M[0]
+        self.interpolated_M = self.M[0]
 
         self.reac = self.M_ini.xyzs[0].flatten() * ang2bohr
         self.prod = self.M_fin.xyzs[0].flatten() * ang2bohr
-        #self.fwd_M = self.M[0]
-        #self.bwd_M = self.M[0]
-        #self.forward_coord_list = []
-        #self.backward_coord_list = []
         self.PRIMs = None
+        self.IC = None
+
+    def analyze_M(self):
+        ini_G = self.M_ini.topology
+        fin_G = self.M_fin.topology
+        G_diff = nx.difference(fin_G, ini_G)
+
+        if len(G_diff.edges) > 1:
+            raise RuntimeError("It can't interpolate trajectories containing more than one chemical reaction step.")
+
 
     def interpolate(self):
         PRIMIC, connect, addcart = self.coordsys_dict["tric-p"]
         for ic in self.params.coordsys:
 
             M = copy.deepcopy(self.M)
+            M_updated = self.M_updated
             nDiv = self.params.frames
             total_frames = self.params.frames
-            #forward_coords = self.forward_coord_list.copy()
-            #backward_coords = self.backward_coord_list.copy()
             curr_coords = self.reac.copy()
             coord_list = []
             CoordClass, connect, addcart = self.coordsys_dict[ic.lower()]
@@ -97,79 +102,30 @@ class Interpolate:
                 addcart=addcart,
                 constraints=None,
             )
-
-            #M.xyzs = np.append(forward_coords, backward_coords, axis = 0)
-
-            #new_PRIM = PRIMIC(
-            #    M,
-            #    build=True,
-            #    connect=connect,
-            #    addcart=addcart,
-            #    constraints=None,
-            #    warn=False,
-            #)
-            #print("PRIMS from all coords", len(new_PRIM.Internals))
-            #IC.Prims = new_PRIM
             IC.Prims = self.PRIMs
-            #map_size = int(total_frames * 0.05)
+            self.IC = IC
 
             for i in range(nDiv):
-                #if i < map_size*2 :
-                #    M.xyzs =forward_coords[:map_size*2] #np.append(forward_coords[i:i+map_size], backward_coords[i:i+map_size], axis = 0)
-                #    print("1", i)
-                ##elif i == total_frames -1 :
-                #    #M.xyzs =backward_coords[i-map_size:i]#np.append(forward_coords[i-map_size:i], backward_coords[i-map_size:i], axis = 0)
-                ##elif i < map_size:
-                ##    M.xyzs = np.append(forward_coords[0:i + map_size], backward_coords[0:i + map_size], axis=0)
-                #elif total_frames-1 < i + map_size*2:
-                #    print("2", i)
-                #    M.xyzs = backward_coords[-map_size*2:]#np.append(forward_coords[i-map_size:-1], backward_coords[i-map_size:-1], axis=0)
-                #else:
-                #    print("3", i)
-                #    M.xyzs = np.append(forward_coords[i-map_size:i+map_size], backward_coords[i-map_size:i+map_size], axis = 0)
-                #M.comms = ['comms %i' for i in range(len(M.xyzs))]
-                #print(len(M.xyzs))
-                #print(len(M.comms))
-                #new_PRIM = PRIMIC(
-                #    M,
-                #    build=True,
-                #    connect=connect,
-                #    addcart=addcart,
-                #    constraints=None,
-                #    warn=False,
-                #)
-
-                # ------------------Geting condition numbers here-------------------------
 
                 coord_list.append(curr_coords)
 
                 IC.build_dlc_0(curr_coords)
+
                 dq = IC.calcDiff(self.prod, curr_coords)
+
                 new_coords = IC.newCartesian(curr_coords, dq / nDiv)
-
-
-                #print("getting GMatrixes from IC objects")
-                #G_f_ini = IC.GMatrix(new_coords)
-                #eig_f_ini, vec_f_ini = np.linalg.eigh(G_f_ini)
-
-                #print("\n-------------------------------------------------------------")
-                #con_num_if = np.real(eig_f_ini[-1] / eig_f_ini[0])
-                #print("Condition number of forward %f" % con_num_if)
-                #cn_info["Forward IC"].append(con_num_if)
 
                 curr_coords = new_coords.copy()
 
                 nDiv -= 1
 
-            self.simple_xyz.xyzs = [
+            self.interpolated_M.xyzs = [
                 coords.reshape(-1, 3) / ang2bohr for coords in coord_list
             ]
 
-            rough_M = copy.deepcopy(self.simple_xyz)
+            self.interpolated_coords = coord_list
 
-            #json_str = json.dumps(cn_info, indent=4)
-            #with open("simple_cn_info.json", "w") as f:
-            #    f.write(json_str)
+
             print(
                 "Error in final interpolated vs. product structure (%s):" % ic,
                 np.linalg.norm(curr_coords - self.prod),
@@ -179,34 +135,59 @@ class Interpolate:
             xyz_dir = os.path.join(self.dir, "interpolated")
             if not os.path.exists(xyz_dir):
                 os.makedirs(xyz_dir)
-            self.simple_xyz.write(
+            self.interpolated_M.write(
                 os.path.join(xyz_dir, "interpolated_%s.xyz" % ic)
             )
 
 
+    def optimize(self, stepsize = 0.01):
+        def calc_E(IC, chain):
+            k = 0.01
+            E = []
+            for i in range(len(chain)):
+                running_E = 0
+                IC.build_dlc_0(chain[i])
+                d1, d2 = 0, 0
+                if i > 0:
+                    d2 = IC.calcDiff(chain[i-1], chain[i])
+                if i < len(chain) -1:
+                    d1 = IC.calcDiff(chain[i], chain[i+1])
+
+                d1 = np.sum(np.square(d1))
+                d2 = np.sum(np.square(d2))
+                running_E += k*(d1 + d2)
+
+                E.append(running_E)
+
+            return E
+
+        IC = self.IC
+        chain_coords = self.interpolated_coords.copy()
+        del_chain_coords = self.interpolated_coords.copy()            
+
+        initial_Es = calc_E(IC, chain_coords)
+        del_coord = []
+        for i, coords in enumerate(chain_coords):
+            IC.build_dlc_0(coords)
+            derivatives = IC.derivatives(coords) # derivatives (3N, N, 3)
+            displacement = np.sum(derivatives, axis = 0).flatten()
+            del_coord.append(displacement)
+            del_chain_coords[i] += displacement #np.sum(derivatives, axis = 0).flatten()
+
+        new_Es = calc_E(IC, del_chain_coords)
+        print(new_Es)
+        repeat = np.shape(del_coord)[-1]
+        del_E = np.subtract(new_Es, initial_Es).repeat(repeat).reshape(len(chain_coords), repeat)
+        chain_coords += -del_E/del_coord * stepsize
+
+        print(np.sum(initial_Es))
+
+        print(np.sum(calc_E(IC, chain_coords)))
+
     def collect_PRIMs(self):
         print("Collecting Primitive Internal Coordinates...")
         PRIMIC, connect, addcart = self.coordsys_dict["tric-p"]
-        #if self.PRIMS is None:
-        #    ini_PRIM = PRIMIC(
-        #        self.M,
-        #        build=True,
-        #        connect=connect,
-        #        addcart=addcart,
-        #        constraints=None,
-        #    )
-        #else:
-        #    ini_PRIM = self.PRIMS
-
         M = copy.deepcopy(self.M)
-
-        #PRIM_b = PRIMIC(
-        #    self.M_fin,
-        #    build=True,
-        #    connect=connect,
-        #    addcart=addcart,
-        #    constraints=None,
-        #)
 
         for ic in self.params.coordsys:
 
@@ -226,20 +207,9 @@ class Interpolate:
             reac = copy.deepcopy(self.reac)
             prod = copy.deepcopy(self.prod)
 
-            #coord_list_f = []
-            #coord_list_b = []
-
-            #cn_info = {"Forward IC": [], "Backward IC": []}
-
-            #nDiv += nDiv % 2
-
             PRIM_most_Internals = IC.Prims
 
             for i in range(nDiv):
-                # ------------------Geting condition numbers here-------------------------
-                #coord_list_f.append(curr_coords_f.reshape(-1,3)/ang2bohr)
-                #coord_list_b.append(curr_coords_b.reshape(-1,3)/ang2bohr)
-
                 IC.build_dlc_0(curr_coords_f)
                 dq_f = IC.calcDiff(prod, curr_coords_f)
 
@@ -249,21 +219,6 @@ class Interpolate:
                 dq_b = IC.calcDiff(reac, curr_coords_b)
 
                 new_coords_b = IC.newCartesian(curr_coords_b, dq_b / nDiv)
-
-                #print("getting GMatrixes from IC objects")
-                #G_f_ini = IC.GMatrix(new_coords_f)
-                #eig_f_ini, vec_f_ini = np.linalg.eigh(G_f_ini)
-
-                #G_b_ini = IC.GMatrix(new_coords_b)
-                #eig_b_ini, vec_b_ini = np.linalg.eigh(G_b_ini)
-
-                #print("\n-------------------------------------------------------------")
-                #con_num_if = np.real(eig_f_ini[-1] / eig_f_ini[0])
-                #con_num_ib = np.real(eig_b_ini[-1] / eig_b_ini[0])
-                #print("Condition number of forward %f" % con_num_if)
-                #print("Condition number of backward %f" % con_num_ib)
-                #cn_info["Forward IC"].append(con_num_if)
-                #cn_info["Backward IC"].append(con_num_ib)
 
                 curr_coords_f = new_coords_f.copy()
                 curr_coords_b = new_coords_b.copy()
@@ -286,82 +241,10 @@ class Interpolate:
                     IC.Prims = new_PRIM
                     PRIM_most_Internals = new_PRIM
 
-                #new_Internals = len(PRIM.Internals)
-                #PRIM_f = PRIMIC(
-                #    self.M_ini,
-                #    build=True,
-                #    connect=connect,
-                #    addcart=addcart,
-                #    constraints=None,
-                #)
-
-                #PRIM_b = PRIMIC(
-                #    self.M_fin,
-                #    build=True,
-                #    connect=connect,
-                #    addcart=addcart,
-                #    constraints=None,
-                #)
-
-                #IC_f.Prims = PRIM_f
-                #IC_b.Prims = PRIM_b
-                #if new_Internals > ini_Internals:
-                #    print(new_Internals, ini_Internals)
-                #    IC.Prims = PRIM
-
                 nDiv -= 1
 
-            #self.forward_coord_list = coord_list_f
-            #self.backward_coord_list = coord_list_b#[::-1]
             self.PRIMs = PRIM_most_Internals
-            #Coord_list = coord_list_f + coord_list_b
-            #M.xyzs = [coords.reshape(-1,3)/ang2bohr for coords in coord_list]
-            #New_PRIM = PRIMIC(
-            #    M,
-            #    build=True,
-            #    connect=connect,
-            #    addcart=addcart,
-            #    constraints=None,
-            #    warn=False,
-            #)
-            #if len(PRIM_most_Internals.Internals) == len(ini_PRIM.Internals):
-            #    self.simple_interpolate(PRIM_most_Internals)
-            #else:
-            #    self.mixed_interpolate(PRIM_most_Internals)
-            #self.PRIMS = IC.Prims #PRIM_most_Internals
-            #self.simple_interpolate(PRIM_most_Internals)
-
             print("Primitive Internal Coordinates are ready.")
-
-
-            #self.fwd_M.xyzs = [
-            #    coords for coords in coord_list_f
-            #]
-
-            #self.bwd_M.xyzs = [
-            #    coords for coords in coord_list_b[::-1]
-            #]
-
-            #self.bwd_M.xyzs = [coords.reshape(-1, 3) / ang2bohr for coords in coord_list_b]
-
-
-            #json_str = json.dumps(cn_info, indent=4)
-            #with open("mixed_cn_info.json", "w") as f:
-            #    f.write(json_str)
-
-            #self.interpolated_dict["mixed_" + ic] = np.array(coord_list_f)
-
-
-            #xyz_dir = os.path.join(self.dir, "interpolated")
-            #if not os.path.exists(xyz_dir):
-            #    os.makedirs(xyz_dir)
-            #self.fwd_M.write(
-            #    os.path.join(xyz_dir, "fwd_interpolated_%s.xyz" % ic)
-            #)
-
-            #self.bwd_M.write(
-            #    os.path.join(xyz_dir, "bwd_interpolated_%s.xyz" % ic)
-            #)
 
 
     def calculate_energies(self, interpolation_type=None):
@@ -432,8 +315,10 @@ def main():
     M, engine = get_molecule_engine(**args_dict)
 
     TRIC = Interpolate(params, M, engine)
+    TRIC.analyze_M()
     TRIC.collect_PRIMs()
     TRIC.interpolate()
+    TRIC.optimize()
     #TRIC.mixed_interpolate()
     # TRIC.calculate_energies("simple")
     # TRIC.fwd_bwd_interpolate()
