@@ -140,9 +140,9 @@ class Interpolate:
             )
 
 
-    def optimize(self, stepsize = 0.01):
+    def optimize(self, stepsize = 0.1):
         def calc_E(IC, chain):
-            k = 0.01
+            k = 1
             E = []
             for i in range(len(chain)):
                 running_E = 0
@@ -158,31 +158,41 @@ class Interpolate:
                 running_E += k*(d1 + d2)
 
                 E.append(running_E)
-
-            return E
+                
+            return np.array(E)
 
         IC = self.IC
         chain_coords = self.interpolated_coords.copy()
-        del_chain_coords = self.interpolated_coords.copy()            
 
         initial_Es = calc_E(IC, chain_coords)
-        del_coord = []
-        for i, coords in enumerate(chain_coords):
+    
+        deriv_list = []
+
+        for coords in chain_coords:
+
             IC.build_dlc_0(coords)
             derivatives = IC.derivatives(coords) # derivatives (3N, N, 3)
-            displacement = np.sum(derivatives, axis = 0).flatten()
-            del_coord.append(displacement)
-            del_chain_coords[i] += displacement #np.sum(derivatives, axis = 0).flatten()
+            deriv_list.append(derivatives.reshape(derivatives.shape[0],-1)) # reshaping (3N, 3N)
 
-        new_Es = calc_E(IC, del_chain_coords)
-        print(new_Es)
-        repeat = np.shape(del_coord)[-1]
-        del_E = np.subtract(new_Es, initial_Es).repeat(repeat).reshape(len(chain_coords), repeat)
-        chain_coords += -del_E/del_coord * stepsize
 
-        print(np.sum(initial_Es))
+        chain_coords = np.array(self.interpolated_coords.copy())
 
-        print(np.sum(calc_E(IC, chain_coords)))
+        expanded_chain_coords = np.transpose(np.repeat(chain_coords[:,:, None], np.shape(chain_coords)[-1], axis=2), (0,2,1))
+
+        updated_coords = expanded_chain_coords + np.array(deriv_list)
+
+        del_E_list = []
+        for i in range(updated_coords.shape[-1]):
+            new_Es = calc_E(IC, updated_coords[:,i])
+            del_E = initial_Es - new_Es
+            del_E_list.append(del_E)
+
+        print(del_E_list)
+        print(np.shape(del_E_list))
+
+        
+             
+            
 
     def collect_PRIMs(self):
         print("Collecting Primitive Internal Coordinates...")
