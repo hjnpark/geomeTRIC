@@ -2003,7 +2003,11 @@ class InternalCoordinates(object):
             # Figure out the further change needed
             dQ1 = dQ1 - dQ_actual
             xyz1 = xyz2.copy()
-            
+
+    def derivatives(self, xyz):
+        pass
+
+
 class PrimitiveInternalCoordinates(InternalCoordinates):
     def __init__(self, molecule, connect=False, addcart=False, constraints=None, cvals=None, warn=True, **kwargs):
         super(PrimitiveInternalCoordinates, self).__init__()
@@ -2811,6 +2815,7 @@ class DelocalizedInternalCoordinates(InternalCoordinates):
         # Add Cartesian coordinates to all.
         self.addcart = addcart
         # The DLC contains an instance of primitive internal coordinates.
+        # HP (11/29/2022): If Prims are provided, use it instead of building one.
         if not Prims: 
             self.Prims = PrimitiveInternalCoordinates(molecule, connect=connect, addcart=addcart, constraints=constraints, cvals=cvals)
         else:

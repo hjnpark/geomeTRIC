@@ -73,6 +73,9 @@ class Interpolate:
         self.prod = self.M_fin.xyzs[0].flatten() * ang2bohr
         self.PRIMs = None
         self.IC = None
+        self.IC_list = []
+        self.Internals_list = []
+        self.Vecs_list = []
 
     def analyze_M(self):
         ini_G = self.M_ini.topology
@@ -88,21 +91,21 @@ class Interpolate:
         for ic in self.params.coordsys:
 
             M = copy.deepcopy(self.M)
-            M_updated = self.M_updated
             nDiv = self.params.frames
-            total_frames = self.params.frames
             curr_coords = self.reac.copy()
             coord_list = []
             CoordClass, connect, addcart = self.coordsys_dict[ic.lower()]
-            cn_info = {"Forward IC": []}
             IC = CoordClass(
                 M,
-                build=True,
+                # build=True,
                 connect=connect,
                 addcart=addcart,
                 constraints=None,
+                Prims=self.PRIMs,
             )
-            IC.Prims = self.PRIMs
+
+            #IC.Prims = self.PRIMs
+
             self.IC = IC
 
             for i in range(nDiv):
@@ -110,9 +113,11 @@ class Interpolate:
                 coord_list.append(curr_coords)
 
                 IC.build_dlc_0(curr_coords)
+                self.IC_list.append(IC)
+                self.Internals_list.append(IC.Internals)
+                self.Vecs_list.append(IC.Vecs)
 
                 dq = IC.calcDiff(self.prod, curr_coords)
-
                 new_coords = IC.newCartesian(curr_coords, dq / nDiv)
 
                 curr_coords = new_coords.copy()
@@ -141,58 +146,86 @@ class Interpolate:
 
 
     def optimize(self, stepsize = 0.1):
-        def calc_E(IC, chain):
+        M = self.M[0]
+        CoordClass, connect, addcart = self.coordsys_dict['tric']
+        def calc_E_F(chain):
             k = 1
             E = []
+            F = []
             for i in range(len(chain)):
-                running_E = 0
-                IC.build_dlc_0(chain[i])
+                M.xyzs = [chain[i].reshape(-1, 3) / ang2bohr]
+                IC = CoordClass(
+                   M,
+                   build=True,
+                   connect=connect,
+                   addcart=addcart,
+                   constraints=None,
+                )
+                #IC = self.IC_list[i]
+                #IC.build_dlc_0(chain[i])
+                #IC.Vecs = self.Vecs_list[i]
+                #IC.Internals = self.Internals_list[i]
                 d1, d2 = 0, 0
                 if i > 0:
-                    d2 = IC.calcDiff(chain[i-1], chain[i])
+                    d1 = IC.calcDiff(chain[i-1], chain[i])
                 if i < len(chain) -1:
-                    d1 = IC.calcDiff(chain[i], chain[i+1])
+                    d2 = IC.calcDiff(chain[i+1], chain[i])
 
-                d1 = np.sum(np.square(d1))
-                d2 = np.sum(np.square(d2))
-                running_E += k*(d1 + d2)
+                #d1_E = np.sum(np.square(d1))
+                d1_E = np.square(d1)
+                #d2_E = np.sum(np.square(d2))
+                d2_E = np.square(d2)
+                E.append(k*(d1_E + d2_E))
 
-                E.append(running_E)
-                
-            return np.array(E)
+                d1_F = d1
+                d2_F = d2
+                F.append(2*k*(d1_F + d2_F))
 
-        IC = self.IC
+            return np.array(E), np.array(F)
+
         chain_coords = self.interpolated_coords.copy()
 
-        initial_Es = calc_E(IC, chain_coords)
-    
-        deriv_list = []
+        initial_Es, initial_Fs = calc_E_F(chain_coords)#, IC)
 
-        for coords in chain_coords:
+        new_chain_list = []
+        Bmat_list = []
+        for i, coord in enumerate(chain_coords):
+            M.xyzs = [coord.reshape(-1,3)/ang2bohr]
+            IC = CoordClass(
+                M,
+                build=True,
+                connect=connect,
+                addcart=addcart,
+                constraints=None,
+            )
+            #IC.clearCache()
+            #IC.build_dlc_0(coord)
+            #Bmat = IC.wilsonB(coord)
+            #IC.Vecs = self.Vecs_list[i]
+            #IC.Internals = self.Internals_list[i]
+            Bmat=IC.wilsonB(coord) # (number of IC by 3N)
+            #print(dqi_dxi)
+            Bmat_list.append(Bmat)
+            new_chain = []
+            for dq in Bmat:
+                new_coord = IC.newCartesian(coord,dq) # 3N
+                new_chain.append(new_coord) # 3N, 3N
+            new_chain_list.append(new_chain) # nimages, 3N, 3N
 
-            IC.build_dlc_0(coords)
-            derivatives = IC.derivatives(coords) # derivatives (3N, N, 3)
-            deriv_list.append(derivatives.reshape(derivatives.shape[0],-1)) # reshaping (3N, 3N)
+        print(np.shape(Bmat_list))
+        print(np.shape(new_chain_list))
 
+        chain_array = np.array(new_chain_list) # nimages, 3N, 3N
+        Bmat_array = np.array(Bmat_list)
+        del_Es_list = []
+        new_Fs_list = []
+        for i in range(chain_array.shape[-1]):
+            new_Es, new_Fs = calc_E_F(chain_array[:,i]) # new E
+            del_Es_list.append(-(new_Es-initial_Es)/Bmat_array) # dE
+            new_Fs_list.append(new_Fs)
+        print(del_Es_list[0][0])
+        print(new_Fs_list[0][0])
 
-        chain_coords = np.array(self.interpolated_coords.copy())
-
-        expanded_chain_coords = np.transpose(np.repeat(chain_coords[:,:, None], np.shape(chain_coords)[-1], axis=2), (0,2,1))
-
-        updated_coords = expanded_chain_coords + np.array(deriv_list)
-
-        del_E_list = []
-        for i in range(updated_coords.shape[-1]):
-            new_Es = calc_E(IC, updated_coords[:,i])
-            del_E = initial_Es - new_Es
-            del_E_list.append(del_E)
-
-        print(del_E_list)
-        print(np.shape(del_E_list))
-
-        
-             
-            
 
     def collect_PRIMs(self):
         print("Collecting Primitive Internal Coordinates...")
