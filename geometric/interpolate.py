@@ -172,59 +172,88 @@ class Interpolate:
                     d2 = IC.calcDiff(chain[i+1], chain[i])
 
                 #d1_E = np.sum(np.square(d1))
-                d1_E = np.square(d1)
+                d1_E = np.sum(np.square(d1))
                 #d2_E = np.sum(np.square(d2))
-                d2_E = np.square(d2)
+                d2_E = np.sum(np.square(d2))
                 E.append(k*(d1_E + d2_E))
 
                 d1_F = d1
                 d2_F = d2
                 F.append(2*k*(d1_F + d2_F))
 
-            return np.array(E), np.array(F)
+            return np.array(E), np.array(F) # (nimages, IC)
 
         chain_coords = self.interpolated_coords.copy()
+        for i in range(100):
+            new_coords = []
+            E_array, F_array = calc_E_F(chain_coords)#, IC)
+            print("-----------Iteration: %i-------------" %i)
+            print("Total Energy",np.sum(E_array))
+            print("Mean Force",np.mean(np.abs(F_array)))
+            print("Max Force",np.max(np.abs(F_array)))
 
-        initial_Es, initial_Fs = calc_E_F(chain_coords)#, IC)
+            for i, forces in enumerate(F_array):
+                if i == 0 or i == len(F_array)-1:
+                    new_coords.append(chain_coords[i])
+                else:
+                    M.xyzs = [chain_coords[i].reshape(-1, 3) / ang2bohr]
+                    forces /= np.linalg.norm(forces)
+                    IC = CoordClass(
+                       M,
+                       build=True,
+                       connect=connect,
+                       addcart=addcart,
+                       constraints=None,
+                    )
+                    new_coords.append(IC.newCartesian(chain_coords[i], forces*0.05))
 
-        new_chain_list = []
-        Bmat_list = []
-        for i, coord in enumerate(chain_coords):
-            M.xyzs = [coord.reshape(-1,3)/ang2bohr]
-            IC = CoordClass(
-                M,
-                build=True,
-                connect=connect,
-                addcart=addcart,
-                constraints=None,
-            )
-            #IC.clearCache()
-            #IC.build_dlc_0(coord)
-            #Bmat = IC.wilsonB(coord)
-            #IC.Vecs = self.Vecs_list[i]
-            #IC.Internals = self.Internals_list[i]
-            Bmat=IC.wilsonB(coord) # (number of IC by 3N)
-            #print(dqi_dxi)
-            Bmat_list.append(Bmat)
-            new_chain = []
-            for dq in Bmat:
-                new_coord = IC.newCartesian(coord,dq) # 3N
-                new_chain.append(new_coord) # 3N, 3N
-            new_chain_list.append(new_chain) # nimages, 3N, 3N
+            chain_coords = new_coords.copy()
 
-        print(np.shape(Bmat_list))
-        print(np.shape(new_chain_list))
+        M.xyzs = [
+                coords.reshape(-1, 3) / ang2bohr for coords in chain_coords
+            ]
 
-        chain_array = np.array(new_chain_list) # nimages, 3N, 3N
-        Bmat_array = np.array(Bmat_list)
-        del_Es_list = []
-        new_Fs_list = []
-        for i in range(chain_array.shape[-1]):
-            new_Es, new_Fs = calc_E_F(chain_array[:,i]) # new E
-            del_Es_list.append(-(new_Es-initial_Es)/Bmat_array) # dE
-            new_Fs_list.append(new_Fs)
-        print(del_Es_list[0][0])
-        print(new_Fs_list[0][0])
+        M.write("optimized.xyz")
+
+            #new_chain_list = []
+            #Bmat_list = []
+            #for i, coord in enumerate(chain_coords):
+            #    M.xyzs = [coord.reshape(-1,3)/ang2bohr]
+            #    IC = CoordClass(
+            #        M,
+            #        build=True,
+            #        connect=connect,
+            #        addcart=addcart,
+            #        constraints=None,
+            #    )
+            #    #IC.clearCache()
+            #    #IC.build_dlc_0(coord)
+            #    #Bmat = IC.wilsonB(coord)
+            #    #IC.Vecs = self.Vecs_list[i]
+            #    #IC.Internals = self.Internals_list[i]
+            #    Bmat=IC.wilsonB(coord) # (number of IC by 3N)
+            #    #print(dqi_dxi)
+            #    Bmat_list.append(Bmat)
+            #    new_chain = []
+            #    for dq in Bmat:
+            #        new_coord = IC.newCartesian(coord,dq) # 3N
+            #        new_chain.append(new_coord) # 3N, 3N
+            #    new_chain_list.append(new_chain) # nimages, 3N, 3N
+
+            #chain_array = np.array(new_chain_list) # nimages, 3N, 3N
+            ##Bmat_array = np.array(Bmat_list)
+            ##del_Es_list = []
+            #new_Fs_list = []
+            #for i in range(chain_array.shape[-1]):
+            #    new_Es, new_Fs = calc_E_F(chain_array[:,i]) # new E
+            #    #del_Es_list.append(-(new_Es-initial_Es)) # dE
+            #    new_Fs_list.append(new_Fs)
+            ##del_Fs_array = np.array(del_Es_list)/np.transpose(Bmat_array, (1,0,2))
+            ##print(del_Fs_array[0][0])
+            ##print(new_Fs_list[0][0])
+            #print(np.shape(new_Fs_list))
+
+
 
 
     def collect_PRIMs(self):
