@@ -219,19 +219,17 @@ class IntpParams(object):
     """
     def __init__(self, **kwargs):
         coordsys_list = ["tric", "cart", "prim", "dlc", "hdlc", "tric-p"]
-        types_list = ["simple", "mixed"]
-        self.coordsys = kwargs.get('coordsys', coordsys_list)
+        self.coordsys = kwargs.get('coordsys', 'tric')
         self.frames = kwargs.get('frames', 20)
-        self.engine = kwargs.get('engine','psi4')
-        self.workers = kwargs.get('workers', 4)
+        #self.engine = kwargs.get('engine','psi4')
+        #self.workers = kwargs.get('workers', 4)
         self.equal_space = kwargs.get('equal_space',False)
 
-        for ic in self.coordsys:
-            if ic not in coordsys_list:
-                raise InvalidICError(
-                   "%s coordinate system is not available. Available coordinate systems: tric, tric-p, cart, prim, dlc, hdlc"
-                    % ic
-                )
+        if self.coordsys not in coordsys_list:
+            raise InvalidICError(
+               "%s coordinate system is not available. Available coordinate systems: tric, tric-p, cart, prim, dlc, hdlc"
+                % ic
+            )
 
 def str2bool(v):
     """ Allows command line options such as "yes" and "True" to be converted into Booleans. """
@@ -433,24 +431,24 @@ def parse_interpolate_args(*args):
     parser = ArgumentParserWithFile(add_help=False, formatter_class=argparse.RawTextHelpFormatter, fromfile_prefix_chars='@')
 
     grp_univ = parser.add_argument_group('universal', 'Relevant to every job')
-    grp_univ.add_argument('input', type=str, help='REQUIRED positional argument: Quantum chemistry or MM input file for single point energy calculations.\n ')
+    #grp_univ.add_argument('input', type=str, help='REQUIRED positional argument: Quantum chemistry or MM input file for single point energy calculations.\n ')
     grp_univ.add_argument('coords', type=str, help='REQUIRED positional argument: Coordinate file to override the QM input file / xyz or PDB file. The FIRST and LAST frames will be used.\n ')
     grp_univ.add_argument('constraints', type=str, nargs='?', help='OPTIONAL positional argument: File containing constraint specifications and/or additional options\n ')
     grp_univ.add_argument('--frames', type=int, help='Number of frames for the interpolation result trajectory(default = 20).')
     grp_univ.add_argument('--equal_space', type=str2bool, help='Provide "yes" to space between frames equally at the end of the interpolation.\n')
-    grp_univ.add_argument('--coordsys', nargs="+", help='Coordinate systems for the interpolation. Multiple of them can be provided (default = all):\n'
+    grp_univ.add_argument('--coordsys', type=str, help='Coordinate systems for the interpolation.(default = tric):\n'
                           '"tric" for Translation-Rotation Internal Coordinates\n'
                           '"cart" = Cartesian coordinate system\n'
                           '"prim" = Primitive (a.k.a redundant internal coordinates)\n '
                           '"dlc" = Delocalized Internal Coordinates,\n'
                           '"hdlc" = Hybrid Delocalized Internal Coordinates\n'
                           '"tric-p" for primitive Translation-Rotation Internal Coordinates (no delocalization)\n ')
-    grp_univ.add_argument('--engine', type=str, help='Specify engine for computing energies and gradients.\n'
-                          '"tera" = TeraChem (default)         "qchem" = Q-Chem\n'
-                          '"psi4" = Psi4                       "openmm" = OpenMM (pass a force field or XML input file)\n'
-                          '"molpro" = Molpro                   "gmx" = Gromacs (pass conf.gro; requires topol.top and shot.mdp\n '
-                          '"gaussian" = Gaussian09/16          "ase" = ASE calculator, use --ase-class/--ase-kwargs\n ')
-    grp_univ.add_argument('--nt', type=int, help='Specify number of threads for running in parallel\n(for TeraChem this should be number of GPUs)')
+    #grp_univ.add_argument('--engine', type=str, help='Specify engine for computing energies and gradients.\n'
+    #                      '"tera" = TeraChem                   "qchem" = Q-Chem\n'
+    #                      '"psi4" = Psi4 (default)             "openmm" = OpenMM (pass a force field or XML input file)\n'
+    #                      '"molpro" = Molpro                   "gmx" = Gromacs (pass conf.gro; requires topol.top and shot.mdp\n '
+    #                      '"gaussian" = Gaussian09/16          "ase" = ASE calculator, use --ase-class/--ase-kwargs\n ')
+    #grp_univ.add_argument('--nt', type=int, help='Specify number of threads for running in parallel\n(for TeraChem this should be number of GPUs)')
 
     grp_help = parser.add_argument_group('help', 'Get help')
     grp_help.add_argument('-h', '--help', action='help', help='Show this help message and exit')
@@ -461,8 +459,10 @@ def parse_interpolate_args(*args):
             args_dict[k] = v
 
     # Check that the input and coords files exist
-    if not os.path.exists(args_dict['input']) or not os.path.exists(args_dict['coords']):
-        raise RuntimeError("Input files don't exist")
+    #if not os.path.exists(args_dict['input']) or not os.path.exists(args_dict['coords']):
+    #    raise RuntimeError("Input files don't exist")
+    if not os.path.exists(args_dict['coords']):
+        raise RuntimeError("Input xyz file doesn't exist")
 
     if 'constraints' in args_dict:
         if not os.path.exists(args_dict['constraints']):
@@ -476,7 +476,7 @@ def parse_interpolate_args(*args):
             elif k in args_dict and v != args_dict[k]:
                 raise RuntimeError("Command line argument %s conflicts with provided value in %s" % (k, args_dict['constraints']))
 
-    if 'engine' not in args_dict:
-        args_dict['engine'] = 'psi4'
+    #if 'engine' not in args_dict:
+    #    args_dict['engine'] = 'psi4'
 
     return args_dict

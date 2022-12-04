@@ -4,7 +4,7 @@ import networkx as nx
 from .params import parse_interpolate_args, IntpParams
 from .prepare import get_molecule_engine
 from .nifty import ang2bohr
-from .molecule import EqualSpacing
+from .molecule import EqualSpacing, Molecule
 from .internal import (
     CartesianCoordinates,
     PrimitiveInternalCoordinates,
@@ -85,71 +85,115 @@ class Interpolate:
         if len(G_diff.edges) > 1:
             raise RuntimeError("It can't interpolate trajectories containing more than one chemical reaction step.")
 
+    def cart_interpolate(self):
+        ic = self.params.coordsys
+        M = copy.deepcopy(self.M)
+        nDiv = self.params.frames
+        curr_coords = self.reac.copy()
+        coord_list = []
+        CoordClass, connect, addcart = self.coordsys_dict[ic.lower()]
+        IC = CoordClass(
+            M,
+            build=True,
+            connect=connect,
+            addcart=addcart,
+            constraints=None,
+        )
+
+        #IC.Prims = self.PRIMs
+        self.IC = IC
+        dq = IC.calcDiff(self.prod, self.reac)
+        for i in range(nDiv):
+
+            coord_list.append(curr_coords)
+
+            new_coords = IC.newCartesian(curr_coords, dq / nDiv)
+
+            curr_coords = new_coords.copy()
+
+        self.interpolated_M.xyzs = [
+            coords.reshape(-1, 3) / ang2bohr for coords in coord_list
+        ]
+
+        self.interpolated_coords = coord_list
+
+        print(
+            "Error in final interpolated vs. product structure (%s):" % ic,
+            np.linalg.norm(curr_coords - self.prod),
+        )
+        #self.interpolated_dict["simple_" + ic] = np.array(coord_list)
+
+        xyz_dir = os.path.join(self.dir, "interpolated")
+        if not os.path.exists(xyz_dir):
+            os.makedirs(xyz_dir)
+        self.interpolated_M.write(
+            os.path.join(xyz_dir, "interpolated_%s.xyz" % ic)
+        )
 
     def interpolate(self):
-        PRIMIC, connect, addcart = self.coordsys_dict["tric-p"]
-        for ic in self.params.coordsys:
+        #PRIMIC, connect, addcart = self.coordsys_dict["tric-p"]
+        ic = self.params.coordsys
+        M = copy.deepcopy(self.M)
+        nDiv = self.params.frames
+        curr_coords = self.reac.copy()
+        coord_list = []
+        CoordClass, connect, addcart = self.coordsys_dict[ic.lower()]
+        IC = CoordClass(
+            M,
+            # build=True,
+            connect=connect,
+            addcart=addcart,
+            constraints=None,
+            Prims=self.PRIMs,
+        )
 
-            M = copy.deepcopy(self.M)
-            nDiv = self.params.frames
-            curr_coords = self.reac.copy()
-            coord_list = []
-            CoordClass, connect, addcart = self.coordsys_dict[ic.lower()]
-            IC = CoordClass(
-                M,
-                # build=True,
-                connect=connect,
-                addcart=addcart,
-                constraints=None,
-                Prims=self.PRIMs,
-            )
+        #IC.Prims = self.PRIMs
 
-            #IC.Prims = self.PRIMs
+        self.IC = IC
 
-            self.IC = IC
+        for i in range(nDiv):
 
-            for i in range(nDiv):
+            coord_list.append(curr_coords)
 
-                coord_list.append(curr_coords)
+            IC.build_dlc_0(curr_coords)
+            self.IC_list.append(IC)
+            self.Internals_list.append(IC.Internals)
+            self.Vecs_list.append(IC.Vecs)
 
-                IC.build_dlc_0(curr_coords)
-                self.IC_list.append(IC)
-                self.Internals_list.append(IC.Internals)
-                self.Vecs_list.append(IC.Vecs)
+            dq = IC.calcDiff(self.prod, curr_coords)
+            new_coords = IC.newCartesian(curr_coords, dq / nDiv)
 
-                dq = IC.calcDiff(self.prod, curr_coords)
-                new_coords = IC.newCartesian(curr_coords, dq / nDiv)
+            curr_coords = new_coords.copy()
 
-                curr_coords = new_coords.copy()
+            nDiv -= 1
 
-                nDiv -= 1
+        self.interpolated_M.xyzs = [
+            coords.reshape(-1, 3) / ang2bohr for coords in coord_list
+        ]
 
-            self.interpolated_M.xyzs = [
-                coords.reshape(-1, 3) / ang2bohr for coords in coord_list
-            ]
-
-            self.interpolated_coords = coord_list
+        self.interpolated_coords = coord_list
 
 
-            print(
-                "Error in final interpolated vs. product structure (%s):" % ic,
-                np.linalg.norm(curr_coords - self.prod),
-            )
-            self.interpolated_dict["simple_" + ic] = np.array(coord_list)
+        print(
+            "Error in final interpolated vs. product structure (%s):" % ic,
+            np.linalg.norm(curr_coords - self.prod),
+        )
+        self.interpolated_dict["simple_" + ic] = np.array(coord_list)
 
-            xyz_dir = os.path.join(self.dir, "interpolated")
-            if not os.path.exists(xyz_dir):
-                os.makedirs(xyz_dir)
-            self.interpolated_M.write(
-                os.path.join(xyz_dir, "interpolated_%s.xyz" % ic)
-            )
+        xyz_dir = os.path.join(self.dir, "interpolated")
+        if not os.path.exists(xyz_dir):
+            os.makedirs(xyz_dir)
+        self.interpolated_M.write(
+            os.path.join(xyz_dir, "interpolated_%s.xyz" % ic)
+        )
 
 
     def optimize(self, stepsize = 0.1):
+        print("Optimizing the interpolated trajectory using TRIC system.")
         M = self.M[0]
         CoordClass, connect, addcart = self.coordsys_dict['tric']
         def calc_E_F(chain):
-            k = 1
+            k = 0.5
             E = []
             F = []
             for i in range(len(chain)):
@@ -171,9 +215,7 @@ class Interpolate:
                 if i < len(chain) -1:
                     d2 = IC.calcDiff(chain[i+1], chain[i])
 
-                #d1_E = np.sum(np.square(d1))
                 d1_E = np.sum(np.square(d1))
-                #d2_E = np.sum(np.square(d2))
                 d2_E = np.sum(np.square(d2))
                 E.append(k*(d1_E + d2_E))
 
@@ -184,13 +226,22 @@ class Interpolate:
             return np.array(E), np.array(F) # (nimages, IC)
 
         chain_coords = self.interpolated_coords.copy()
-        for i in range(100):
+        E_array, F_array = calc_E_F(chain_coords)#, IC)
+        tot_E = np.sum(E_array)
+        mean_F = np.mean(np.abs(F_array))
+        max_F = np.max(np.abs(F_array))
+
+        #for i in range(100):
+        iteration = 0
+        while True:
+            if iteration > 100:
+                print("Reached the maximum iteration number")
+                break
             new_coords = []
-            E_array, F_array = calc_E_F(chain_coords)#, IC)
-            print("-----------Iteration: %i-------------" %i)
-            print("Total Energy",np.sum(E_array))
-            print("Mean Force",np.mean(np.abs(F_array)))
-            print("Max Force",np.max(np.abs(F_array)))
+            print("-----------Iteration: %i-------------" %iteration)
+            print("Total Energy",tot_E)
+            print("Mean Force",mean_F)
+            print("Max Force",max_F)
 
             for i, forces in enumerate(F_array):
                 if i == 0 or i == len(F_array)-1:
@@ -205,15 +256,29 @@ class Interpolate:
                        addcart=addcart,
                        constraints=None,
                     )
-                    new_coords.append(IC.newCartesian(chain_coords[i], forces*0.05))
+                    new_coords.append(IC.newCartesian(chain_coords[i], forces*0.01))
 
+            new_E_array, new_F_array = calc_E_F(new_coords)
+            new_tot_E = np.sum(new_E_array)
+            new_mean_F = np.mean(np.abs(new_F_array))
+            new_max_F = np.max(np.abs(new_F_array))
+
+            print("\nNew Total Energy",new_tot_E)
+            print("New Mean Force",new_mean_F)
+            print("New Max Force",new_max_F)
+
+            F_array = new_F_array.copy()
+            tot_E = new_tot_E.copy()
+            mean_F = new_mean_F.copy()
+            max_F = new_max_F.copy()
             chain_coords = new_coords.copy()
+            iteration += 1
 
         M.xyzs = [
                 coords.reshape(-1, 3) / ang2bohr for coords in chain_coords
             ]
 
-        M.write("optimized.xyz")
+        M.write("interpolated/optimized.xyz")
 
             #new_chain_list = []
             #Bmat_list = []
@@ -260,63 +325,61 @@ class Interpolate:
         print("Collecting Primitive Internal Coordinates...")
         PRIMIC, connect, addcart = self.coordsys_dict["tric-p"]
         M = copy.deepcopy(self.M)
+        ic = self.params.coordsys
+        CoordClass, connect, addcart = self.coordsys_dict[ic.lower()]
+        IC = CoordClass(
+            M,
+            build=True,
+            connect=connect,
+            addcart=addcart,
+            constraints=None,
+        )
 
-        for ic in self.params.coordsys:
+        nDiv = self.params.frames
 
-            CoordClass, connect, addcart = self.coordsys_dict[ic.lower()]
-            IC = CoordClass(
+        curr_coords_f = copy.deepcopy(self.reac)
+        curr_coords_b = copy.deepcopy(self.prod)
+        reac = copy.deepcopy(self.reac)
+        prod = copy.deepcopy(self.prod)
+
+        PRIM_most_Internals = IC.Prims
+
+        for i in range(nDiv):
+            IC.build_dlc_0(curr_coords_f)
+            dq_f = IC.calcDiff(prod, curr_coords_f)
+
+            new_coords_f = IC.newCartesian(curr_coords_f, dq_f / nDiv)
+
+            IC.build_dlc_0(curr_coords_b)
+            dq_b = IC.calcDiff(reac, curr_coords_b)
+
+            new_coords_b = IC.newCartesian(curr_coords_b, dq_b / nDiv)
+
+            curr_coords_f = new_coords_f.copy()
+            curr_coords_b = new_coords_b.copy()
+
+            M.xyzs = [reac.reshape(-1,3)/ang2bohr,
+                     curr_coords_f.reshape(-1,3)/ang2bohr,
+                     curr_coords_b.reshape(-1,3)/ang2bohr,
+                     prod.reshape(-1,3)/ang2bohr]
+
+            new_PRIM = PRIMIC(
                 M,
                 build=True,
                 connect=connect,
                 addcart=addcart,
                 constraints=None,
+                warn=False,
             )
 
-            nDiv = self.params.frames
+            if len(new_PRIM.Internals) > len(PRIM_most_Internals.Internals):
+                IC.Prims = new_PRIM
+                PRIM_most_Internals = new_PRIM
 
-            curr_coords_f = copy.deepcopy(self.reac)
-            curr_coords_b = copy.deepcopy(self.prod)
-            reac = copy.deepcopy(self.reac)
-            prod = copy.deepcopy(self.prod)
+            nDiv -= 1
 
-            PRIM_most_Internals = IC.Prims
-
-            for i in range(nDiv):
-                IC.build_dlc_0(curr_coords_f)
-                dq_f = IC.calcDiff(prod, curr_coords_f)
-
-                new_coords_f = IC.newCartesian(curr_coords_f, dq_f / nDiv)
-
-                IC.build_dlc_0(curr_coords_b)
-                dq_b = IC.calcDiff(reac, curr_coords_b)
-
-                new_coords_b = IC.newCartesian(curr_coords_b, dq_b / nDiv)
-
-                curr_coords_f = new_coords_f.copy()
-                curr_coords_b = new_coords_b.copy()
-
-                M.xyzs = [reac.reshape(-1,3)/ang2bohr,
-                         curr_coords_f.reshape(-1,3)/ang2bohr,
-                         curr_coords_b.reshape(-1,3)/ang2bohr,
-                         prod.reshape(-1,3)/ang2bohr]
-
-                new_PRIM = PRIMIC(
-                    M,
-                    build=True,
-                    connect=connect,
-                    addcart=addcart,
-                    constraints=None,
-                    warn=False,
-                )
-
-                if len(new_PRIM.Internals) > len(PRIM_most_Internals.Internals):
-                    IC.Prims = new_PRIM
-                    PRIM_most_Internals = new_PRIM
-
-                nDiv -= 1
-
-            self.PRIMs = PRIM_most_Internals
-            print("Primitive Internal Coordinates are ready.")
+        self.PRIMs = PRIM_most_Internals
+        print("Primitive Internal Coordinates are ready.")
 
 
     def calculate_energies(self, interpolation_type=None):
@@ -379,17 +442,26 @@ class Interpolate:
         plt.ylabel("Energy (Hartree)")
         plt.savefig(os.path.join(self.dir, "energy_plot.png"), bbox_inches="tight")
 
+class nullengine:
+    def __init__(self, M):
+        self.M = M 
+    
 
 def main():
     args_dict = parse_interpolate_args(sys.argv[1:])
     args_dict["interpolation"] = True
+    M = Molecule(args_dict['coords'])[0]
+    args_dict["customengine"] = nullengine(M)
     params = IntpParams(**args_dict)
     M, engine = get_molecule_engine(**args_dict)
 
     TRIC = Interpolate(params, M, engine)
     TRIC.analyze_M()
-    TRIC.collect_PRIMs()
-    TRIC.interpolate()
+    if params.coordsys == 'cart':
+        TRIC.cart_interpolate()
+    else:
+        TRIC.collect_PRIMs()
+        TRIC.interpolate()
     TRIC.optimize()
     #TRIC.mixed_interpolate()
     # TRIC.calculate_energies("simple")
