@@ -233,6 +233,7 @@ class Interpolate:
 
         #for i in range(100):
         iteration = 0
+        stepsize = 0.01
         while True:
             if iteration > 100:
                 print("Reached the maximum iteration number")
@@ -256,17 +257,36 @@ class Interpolate:
                        addcart=addcart,
                        constraints=None,
                     )
-                    new_coords.append(IC.newCartesian(chain_coords[i], forces*0.01))
+                    new_coords.append(IC.newCartesian(chain_coords[i], forces*stepsize))
 
             new_E_array, new_F_array = calc_E_F(new_coords)
             new_tot_E = np.sum(new_E_array)
             new_mean_F = np.mean(np.abs(new_F_array))
             new_max_F = np.max(np.abs(new_F_array))
 
-            print("\nNew Total Energy",new_tot_E)
-            print("New Mean Force",new_mean_F)
-            print("New Max Force",new_max_F)
+            del_E = new_tot_E-tot_E
+            del_mean_F = new_mean_F-mean_F
+            del_max_F = new_max_F-max_F
+            print("\ndel Total Energy",del_E)
+            print("del Mean Force",del_mean_F)
+            print("del Max Force",del_max_F)
 
+
+            if del_E > 0 and del_mean_F > 0 and del_max_F >0:
+                print("Decreasing stepsize")
+                stepsize *= 0.7
+                #F_array = new_F_array.copy()
+                #tot_E = new_tot_E.copy()
+                #mean_F = new_mean_F.copy()
+                #max_F = new_max_F.copy()
+                #chain_coords = new_coords.copy()
+                continue
+
+            elif del_E < 0 and del_mean_F < 0 and del_max_F <0:
+                print("Increasing stepsize")
+                stepsize *= 1.5
+
+            print("Updating..")
             F_array = new_F_array.copy()
             tot_E = new_tot_E.copy()
             mean_F = new_mean_F.copy()
