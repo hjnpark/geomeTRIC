@@ -178,7 +178,7 @@ class Interpolate:
             "Error in final interpolated vs. product structure (%s):" % ic,
             np.linalg.norm(curr_coords - self.prod),
         )
-        self.interpolated_dict["simple_" + ic] = np.array(coord_list)
+        #self.interpolated_dict["simple_" + ic] = np.array(coord_list)
 
         xyz_dir = os.path.join(self.dir, "interpolated")
         if not os.path.exists(xyz_dir):
@@ -260,6 +260,7 @@ class Interpolate:
                     new_coords.append(IC.newCartesian(chain_coords[i], forces*stepsize))
 
             new_E_array, new_F_array = calc_E_F(new_coords)
+            del_E_array = np.abs(new_E_array - E_array)
             new_tot_E = np.sum(new_E_array)
             new_mean_F = np.mean(np.abs(new_F_array))
             new_max_F = np.max(np.abs(new_F_array))
@@ -268,23 +269,29 @@ class Interpolate:
             del_mean_F = new_mean_F-mean_F
             del_max_F = new_max_F-max_F
             print("\ndel Total Energy",del_E)
+            print("max del E", np.max(del_E_array))
+            print("del Energy percentage", del_E/tot_E * 100)
             print("del Mean Force",del_mean_F)
             print("del Max Force",del_max_F)
 
 
-            if del_E > 0 and del_mean_F > 0 and del_max_F >0:
-                print("Decreasing stepsize")
-                stepsize *= 0.7
-                #F_array = new_F_array.copy()
-                #tot_E = new_tot_E.copy()
-                #mean_F = new_mean_F.copy()
-                #max_F = new_max_F.copy()
-                #chain_coords = new_coords.copy()
-                continue
+            #if del_E > 0 and del_mean_F > 0 and del_max_F >0:
+            #    print("Decreasing stepsize")
+            #    stepsize *= 0.7
+            #    #F_array = new_F_array.copy()
+            #    #tot_E = new_tot_E.copy()
+            #    #mean_F = new_mean_F.copy()
+            #    #max_F = new_max_F.copy()
+            #    #chain_coords = new_coords.copy()
+            #    continue
 
-            elif del_E < 0 and del_mean_F < 0 and del_max_F <0:
-                print("Increasing stepsize")
-                stepsize *= 1.5
+            #elif del_E < 0 and del_mean_F < 0 and del_max_F <0:
+            #    print("Increasing stepsize")
+            #    stepsize *= 1.5
+
+            if (mean_F < 0.01 and max_F < 0.1) or np.abs(del_E) < 1e-3:
+                print("Converged")
+                break
 
             print("Updating..")
             F_array = new_F_array.copy()
@@ -298,7 +305,7 @@ class Interpolate:
                 coords.reshape(-1, 3) / ang2bohr for coords in chain_coords
             ]
 
-        M.write("interpolated/optimized.xyz")
+        M.write("interpolated/optimized_%s.xyz" %self.params.coordsys)
 
             #new_chain_list = []
             #Bmat_list = []
@@ -382,7 +389,7 @@ class Interpolate:
                      curr_coords_f.reshape(-1,3)/ang2bohr,
                      curr_coords_b.reshape(-1,3)/ang2bohr,
                      prod.reshape(-1,3)/ang2bohr]
-
+            #print(M.xyzs[0][0])
             new_PRIM = PRIMIC(
                 M,
                 build=True,
@@ -393,6 +400,9 @@ class Interpolate:
             )
 
             if len(new_PRIM.Internals) > len(PRIM_most_Internals.Internals):
+                print("PRIM object is replaced")
+                print(len(new_PRIM.Internals))
+                print(len(PRIM_most_Internals.Internals))
                 IC.Prims = new_PRIM
                 PRIM_most_Internals = new_PRIM
 
@@ -476,7 +486,7 @@ def main():
     M, engine = get_molecule_engine(**args_dict)
 
     TRIC = Interpolate(params, M, engine)
-    TRIC.analyze_M()
+    #TRIC.analyze_M()
     if params.coordsys == 'cart':
         TRIC.cart_interpolate()
     else:
