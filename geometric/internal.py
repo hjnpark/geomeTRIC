@@ -761,6 +761,111 @@ class RotationC(PrimitiveCoordinate):
         second_derivatives = deriv2_all[:, :, :, :, 2]*self.w
         return second_derivatives
 
+class Handoff(PrimitiveCoordinate):
+    def __init__(self, a, b, c):
+        self.a = a
+        self.b = b
+        self.c = c
+        self.isAngular = False
+        self.isPeriodic = False
+
+    def __repr__(self):
+        return "Handoff %i-%i-%i" % (self.a+1, self.b+1, self.c+1)
+
+    def __eq__(self, other):
+        if type(self) is not type(other): return False
+        if self.b == other.b:
+            if self.a == other.a:
+                if self.c == other.c:
+                    return True
+            if self.a == other.c:
+                if self.c == other.a:
+                    return True
+        return False
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def value(self, xyz):
+        xyz = xyz.reshape(-1, 3)
+        a = self.a
+        b = self.b
+        c = self.c
+        r1 = np.linalg.norm(xyz[a]-xyz[b])
+        r2 = np.linalg.norm(xyz[b]-xyz[c])
+        return r1-r2
+
+    def derivative(self, xyz):
+        xyz = xyz.reshape(-1, 3)
+        derivatives = np.zeros_like(xyz)
+        a = self.a
+        b = self.b
+        c = self.c
+
+        u = (xyz[a] - xyz[b]) / np.linalg.norm(xyz[a] - xyz[b])
+        v = (xyz[b] - xyz[c]) / np.linalg.norm(xyz[b] - xyz[c])
+
+        derivatives[a,:] = u
+        derivatives[b,:] = -u-v
+        derivatives[c,:] = v
+
+        return derivatives
+
+class ReducedDistance(PrimitiveCoordinate):
+    def __init__(self, a, b, c):
+        self.a = a
+        self.b = b
+        self.c = c
+        self.isAngular = False
+        self.isPeriodic = False
+
+    def __repr__(self):
+        return "ReducedDistance %i-%i-%i" % (self.a + 1, self.b + 1, self.c + 1)
+
+    def __eq__(self, other):
+        if type(self) is not type(other): return False
+        if self.b == other.b:
+            if self.a == other.a:
+                if self.c == other.c:
+                    return True
+            if self.a == other.c:
+                if self.c == other.a:
+                    return True
+        return False
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def value(self, xyz):
+        xyz = xyz.reshape(-1, 3)
+        a = self.a
+        b = self.b
+        c = self.c
+        r1 = np.linalg.norm(xyz[a] - xyz[b])
+        r2 = np.linalg.norm(xyz[b] - xyz[c])
+        return r1*r2/(r1+r2)
+
+    #HP: Derivative and second derivative need to be reviewed..
+    def derivative(self, xyz):
+        xyz = xyz.reshape(-1, 3)
+        derivatives = np.zeros_like(xyz)
+        a = self.a
+        b = self.b
+        c = self.c
+
+        u_vec = xyz[b] - xyz[a]
+        v_vec = xyz[b] - xyz[c]
+        r1 = np.linalg.norm(u_vec)
+        r2 = np.linalg.norm(v_vec)
+
+        r1r2 = r1+r2
+
+        derivatives[a, :] = (-r2/r1*u_vec*r1r2 - r2*u_vec)/r1r2**2
+        derivatives[b, :] = ((r2/r1*u_vec + r1/r2*v_vec)*r1r2 + r2*u_vec + r1*v_vec)/r1r2**2
+        derivatives[c, :] = (-r1/r2*v_vec*r1r2 - r1*v_vec)/r1r2**2
+
+        return derivatives
+
 class Distance(PrimitiveCoordinate):
     def __init__(self, a, b):
         self.a = a

@@ -8,7 +8,7 @@ from .molecule import EqualSpacing, Molecule
 from .internal import (
     CartesianCoordinates,
     PrimitiveInternalCoordinates,
-    DelocalizedInternalCoordinates,
+    DelocalizedInternalCoordinates, Handoff, ReducedDistance,
 )
 import numpy as np
 
@@ -75,7 +75,8 @@ class Interpolate:
         self.IC = None
         self.IC_list = []
         self.Internals_list = []
-        self.Vecs_list = []
+        self.DistanceIC = []
+        self.atoms_ind = []
 
     def analyze_M(self):
         ini_G = self.M_ini.topology
@@ -84,6 +85,29 @@ class Interpolate:
 
         if len(G_diff.edges) > 1:
             raise RuntimeError("It can't interpolate trajectories containing more than one chemical reaction step.")
+
+        PRIMIC, connect, addcart = self.coordsys_dict["tric-p"]
+        PRIM1 = PRIMIC(self.M_ini,
+                       build = True,
+                       connect = connect,
+                       addcart = addcart,
+                       constraints=None,
+                       warn=False)
+
+        PRIM2 = PRIMIC(self.M_fin,
+                       build = True,
+                       connect = connect,
+                       addcart = addcart,
+                       constraints=None,
+                       warn=False)
+
+        bond1 = [x.__repr__() for x in PRIM1.Internals if x not in PRIM2.Internals and x.__repr__().split()[0] == 'Distance']
+        bond2 = [x.__repr__() for x in PRIM2.Internals if x not in PRIM1.Internals and x.__repr__().split()[0] == 'Distance']
+
+        if len(bond1) == 1 and len(bond2) == 1:
+            print("Handoff and Reduced Distance will be used")
+            self.atoms_ind = [int(x)-1 for x in bond1[0].split()[-1].split('-')] + [int(bond2[0].split('-')[-1])-1]
+            self.DistanceIC = [bond1[0], bond2[0]]
 
     def cart_interpolate(self):
         ic = self.params.coordsys
@@ -154,11 +178,10 @@ class Interpolate:
         for i in range(nDiv):
 
             coord_list.append(curr_coords)
-
             IC.build_dlc_0(curr_coords)
-            self.IC_list.append(IC)
+            #self.IC_list.append(IC)
             self.Internals_list.append(IC.Internals)
-            self.Vecs_list.append(IC.Vecs)
+            #self.Vecs_list.append(IC.Vecs)
 
             dq = IC.calcDiff(self.prod, curr_coords)
             new_coords = IC.newCartesian(curr_coords, dq / nDiv)
@@ -400,17 +423,25 @@ class Interpolate:
             )
 
             if len(new_PRIM.Internals) > len(PRIM_most_Internals.Internals):
-                print("PRIM object is replaced")
-                print(len(new_PRIM.Internals))
-                print(len(PRIM_most_Internals.Internals))
                 IC.Prims = new_PRIM
                 PRIM_most_Internals = new_PRIM
 
             nDiv -= 1
+        str_internals = [x.__repr__() for x in PRIM_most_Internals.Internals]
 
+        for Distance in self.DistanceIC:
+            ind = str_internals.index(Distance)
+            del PRIM_most_Internals.Internals[ind]
+            del str_internals[ind]
+           #if Distance in str_internals:
+           #    print('Distance IC detected')
+
+        PRIM_most_Internals.add(Handoff(self.atoms_ind[0], self.atoms_ind[1], self.atoms_ind[2]))
+        PRIM_most_Internals.add(ReducedDistance(self.atoms_ind[0], self.atoms_ind[1], self.atoms_ind[2]))
+
+        IC.Prims.checkFiniteDifferenceGrad(self.reac)
         self.PRIMs = PRIM_most_Internals
         print("Primitive Internal Coordinates are ready.")
-
 
     def calculate_energies(self, interpolation_type=None):
         print("Calculating Energies...")
@@ -486,13 +517,13 @@ def main():
     M, engine = get_molecule_engine(**args_dict)
 
     TRIC = Interpolate(params, M, engine)
-    #TRIC.analyze_M()
+    TRIC.analyze_M()
     if params.coordsys == 'cart':
         TRIC.cart_interpolate()
     else:
         TRIC.collect_PRIMs()
         TRIC.interpolate()
-    TRIC.optimize()
+    #TRIC.optimize()
     #TRIC.mixed_interpolate()
     # TRIC.calculate_energies("simple")
     # TRIC.fwd_bwd_interpolate()
