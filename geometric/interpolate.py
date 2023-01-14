@@ -435,7 +435,6 @@ class Interpolate:
             del str_internals[ind]
            #if Distance in str_internals:
            #    print('Distance IC detected')
-
         PRIM_most_Internals.add(Handoff(self.atoms_ind[0], self.atoms_ind[1], self.atoms_ind[2]))
         PRIM_most_Internals.add(ReducedDistance(self.atoms_ind[0], self.atoms_ind[1], self.atoms_ind[2]))
 

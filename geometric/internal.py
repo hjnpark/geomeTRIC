@@ -841,11 +841,10 @@ class ReducedDistance(PrimitiveCoordinate):
         a = self.a
         b = self.b
         c = self.c
-        r1 = np.linalg.norm(xyz[a] - xyz[b])
+        r1 = np.linalg.norm(xyz[b] - xyz[a])
         r2 = np.linalg.norm(xyz[b] - xyz[c])
         return r1*r2/(r1+r2)
 
-    #HP: Derivative and second derivative need to be reviewed..
     def derivative(self, xyz):
         xyz = xyz.reshape(-1, 3)
         derivatives = np.zeros_like(xyz)
@@ -860,9 +859,9 @@ class ReducedDistance(PrimitiveCoordinate):
 
         r1r2 = r1+r2
 
-        derivatives[a, :] = (-r2/r1*u_vec*r1r2 - r2*u_vec)/r1r2**2
-        derivatives[b, :] = ((r2/r1*u_vec + r1/r2*v_vec)*r1r2 + r2*u_vec + r1*v_vec)/r1r2**2
-        derivatives[c, :] = (-r1/r2*v_vec*r1r2 - r1*v_vec)/r1r2**2
+        derivatives[a, :] = (-r2/r1*u_vec*r1r2 + r2*u_vec)/r1r2**2
+        derivatives[b, :] = ((r2/r1*u_vec + r1/r2*v_vec)*r1r2 - r2*u_vec - r1*v_vec)/r1r2**2
+        derivatives[c, :] = (-r1/r2*v_vec*r1r2 + r1*v_vec)/r1r2**2
 
         return derivatives
 
@@ -1918,6 +1917,7 @@ class InternalCoordinates(object):
                     if maxerr < np.abs(error):
                         maxerr = np.abs(error)
             if maxerr > 1e-5:
+                print('\n'.join(lines))
                 logger.info('\n'.join(lines)+'\n')
             logger.info("%s : Max Error = %.5e\n" % (title, maxerr))
         logger.info("Finite-difference Finished\n")
