@@ -72,9 +72,6 @@ class Interpolate:
         self.reac = self.M_ini.xyzs[0].flatten() * ang2bohr
         self.prod = self.M_fin.xyzs[0].flatten() * ang2bohr
         self.PRIMs = None
-        self.IC = None
-        self.IC_list = []
-        self.Internals_list = []
         self.DistanceIC = []
         self.atoms_ind = []
 
@@ -83,8 +80,8 @@ class Interpolate:
         fin_G = self.M_fin.topology
         G_diff = nx.difference(fin_G, ini_G)
 
-        if len(G_diff.edges) > 1:
-            raise RuntimeError("It can't interpolate trajectories containing more than one chemical reaction step.")
+        #if len(G_diff.edges) > 1:
+        #    raise RuntimeError("It can't interpolate trajectories containing more than one chemical reaction step.")
 
         PRIMIC, connect, addcart = self.coordsys_dict["tric-p"]
         PRIM1 = PRIMIC(self.M_ini,
@@ -105,16 +102,18 @@ class Interpolate:
         bond2 = [x.__repr__() for x in PRIM2.Internals if x not in PRIM1.Internals and x.__repr__().split()[0] == 'Distance']
 
         if len(bond1) == 1 and len(bond2) == 1:
-            print("Handoff and Reduced Distance will be used")
-            self.atoms_ind = [int(x)-1 for x in bond1[0].split()[-1].split('-')] + [int(bond2[0].split('-')[-1])-1]
-            self.DistanceIC = [bond1[0], bond2[0]]
+            atoms_ind = set([int(x)-1 for x in bond1[0].split()[-1].split('-') + bond2[0].split()[-1].split('-')])
+            if len(atoms_ind) == 3:
+                print("Handoff and ReducedDistance IC will be used")
+                self.atoms_ind = [x for x in atoms_ind]
+                self.DistanceIC = [bond1[0], bond2[0]]
 
-    def cart_interpolate(self):
+    def simple_interpolate(self):
         ic = self.params.coordsys
         M = copy.deepcopy(self.M)
-        nDiv = self.params.frames
+        nDiv = self.params.frames - 1
         curr_coords = self.reac.copy()
-        coord_list = []
+        coord_list = [curr_coords]
         CoordClass, connect, addcart = self.coordsys_dict[ic.lower()]
         IC = CoordClass(
             M,
@@ -125,15 +124,15 @@ class Interpolate:
         )
 
         #IC.Prims = self.PRIMs
-        self.IC = IC
         dq = IC.calcDiff(self.prod, self.reac)
         for i in range(nDiv):
 
-            coord_list.append(curr_coords)
 
             new_coords = IC.newCartesian(curr_coords, dq / nDiv)
 
             curr_coords = new_coords.copy()
+
+            coord_list.append(curr_coords)
 
         self.interpolated_M.xyzs = [
             coords.reshape(-1, 3) / ang2bohr for coords in coord_list
@@ -145,7 +144,6 @@ class Interpolate:
             "Error in final interpolated vs. product structure (%s):" % ic,
             np.linalg.norm(curr_coords - self.prod),
         )
-        #self.interpolated_dict["simple_" + ic] = np.array(coord_list)
 
         xyz_dir = os.path.join(self.dir, "interpolated")
         if not os.path.exists(xyz_dir):
@@ -154,40 +152,32 @@ class Interpolate:
             os.path.join(xyz_dir, "interpolated_%s.xyz" % ic)
         )
 
-    def interpolate(self):
-        #PRIMIC, connect, addcart = self.coordsys_dict["tric-p"]
+    def RTRIC_interpolate(self):
         ic = self.params.coordsys
         M = copy.deepcopy(self.M)
-        nDiv = self.params.frames
+        nDiv = self.params.frames - 1
         curr_coords = self.reac.copy()
-        coord_list = []
+        coord_list = [curr_coords]
         CoordClass, connect, addcart = self.coordsys_dict[ic.lower()]
         IC = CoordClass(
             M,
-            # build=True,
             connect=connect,
             addcart=addcart,
             constraints=None,
             Prims=self.PRIMs,
         )
 
-        #IC.Prims = self.PRIMs
-
-        self.IC = IC
 
         for i in range(nDiv):
 
-            coord_list.append(curr_coords)
             IC.build_dlc_0(curr_coords)
-            #self.IC_list.append(IC)
-            self.Internals_list.append(IC.Internals)
-            #self.Vecs_list.append(IC.Vecs)
 
             dq = IC.calcDiff(self.prod, curr_coords)
             new_coords = IC.newCartesian(curr_coords, dq / nDiv)
 
             curr_coords = new_coords.copy()
 
+            coord_list.append(curr_coords)
             nDiv -= 1
 
         self.interpolated_M.xyzs = [
@@ -198,25 +188,37 @@ class Interpolate:
 
 
         print(
-            "Error in final interpolated vs. product structure (%s):" % ic,
+            "Error in final interpolated vs. product structure (RTRIC%s):" % ic,
             np.linalg.norm(curr_coords - self.prod),
         )
-        #self.interpolated_dict["simple_" + ic] = np.array(coord_list)
+
 
         xyz_dir = os.path.join(self.dir, "interpolated")
         if not os.path.exists(xyz_dir):
             os.makedirs(xyz_dir)
+        if self.DistanceIC:
+            ic += '_plus'
         self.interpolated_M.write(
-            os.path.join(xyz_dir, "interpolated_%s.xyz" % ic)
+            os.path.join(xyz_dir, "interpolated_RTRIC_%s.xyz" % ic)
         )
 
 
     def optimize(self, stepsize = 0.1):
         print("Optimizing the interpolated trajectory using TRIC system.")
+        str_internals = [x.__repr__() for x in self.PRIMs.Internals]
+
+        for Distance in self.DistanceIC:
+            ind = str_internals.index(Distance)
+            del self.PRIMs.Internals[ind]
+            del str_internals[ind]
+
+        self.PRIMs.add(Handoff(self.atoms_ind[0], self.atoms_ind[1], self.atoms_ind[2]))
+        self.PRIMs.add(ReducedDistance(self.atoms_ind[0], self.atoms_ind[1], self.atoms_ind[2]))
+
         M = self.M[0]
         CoordClass, connect, addcart = self.coordsys_dict['tric']
         def calc_E_F(chain):
-            k = 0.5
+            k = 5
             E = []
             F = []
             for i in range(len(chain)):
@@ -224,11 +226,11 @@ class Interpolate:
                 IC = CoordClass(
                    M,
                    build=True,
+                   Prims=self.PRIMs,
                    connect=connect,
                    addcart=addcart,
                    constraints=None,
                 )
-                #IC = self.IC_list[i]
                 #IC.build_dlc_0(chain[i])
                 #IC.Vecs = self.Vecs_list[i]
                 #IC.Internals = self.Internals_list[i]
@@ -242,7 +244,7 @@ class Interpolate:
                 d2_E = np.sum(np.square(d2))
                 E.append(k*(d1_E + d2_E))
 
-                d1_F = d1
+                d1_F = -d1
                 d2_F = d2
                 F.append(2*k*(d1_F + d2_F))
 
@@ -254,9 +256,8 @@ class Interpolate:
         mean_F = np.mean(np.abs(F_array))
         max_F = np.max(np.abs(F_array))
 
-        #for i in range(100):
         iteration = 0
-        stepsize = 0.01
+        stepsize = 0.1
         while True:
             if iteration > 100:
                 print("Reached the maximum iteration number")
@@ -297,22 +298,7 @@ class Interpolate:
             print("del Mean Force",del_mean_F)
             print("del Max Force",del_max_F)
 
-
-            #if del_E > 0 and del_mean_F > 0 and del_max_F >0:
-            #    print("Decreasing stepsize")
-            #    stepsize *= 0.7
-            #    #F_array = new_F_array.copy()
-            #    #tot_E = new_tot_E.copy()
-            #    #mean_F = new_mean_F.copy()
-            #    #max_F = new_max_F.copy()
-            #    #chain_coords = new_coords.copy()
-            #    continue
-
-            #elif del_E < 0 and del_mean_F < 0 and del_max_F <0:
-            #    print("Increasing stepsize")
-            #    stepsize *= 1.5
-
-            if (mean_F < 0.01 and max_F < 0.1) or np.abs(del_E) < 1e-3:
+            if mean_F < 0.025 and max_F < 0.05:
                 print("Converged")
                 break
 
@@ -330,53 +316,12 @@ class Interpolate:
 
         M.write("interpolated/optimized_%s.xyz" %self.params.coordsys)
 
-            #new_chain_list = []
-            #Bmat_list = []
-            #for i, coord in enumerate(chain_coords):
-            #    M.xyzs = [coord.reshape(-1,3)/ang2bohr]
-            #    IC = CoordClass(
-            #        M,
-            #        build=True,
-            #        connect=connect,
-            #        addcart=addcart,
-            #        constraints=None,
-            #    )
-            #    #IC.clearCache()
-            #    #IC.build_dlc_0(coord)
-            #    #Bmat = IC.wilsonB(coord)
-            #    #IC.Vecs = self.Vecs_list[i]
-            #    #IC.Internals = self.Internals_list[i]
-            #    Bmat=IC.wilsonB(coord) # (number of IC by 3N)
-            #    #print(dqi_dxi)
-            #    Bmat_list.append(Bmat)
-            #    new_chain = []
-            #    for dq in Bmat:
-            #        new_coord = IC.newCartesian(coord,dq) # 3N
-            #        new_chain.append(new_coord) # 3N, 3N
-            #    new_chain_list.append(new_chain) # nimages, 3N, 3N
-
-            #chain_array = np.array(new_chain_list) # nimages, 3N, 3N
-            ##Bmat_array = np.array(Bmat_list)
-            ##del_Es_list = []
-            #new_Fs_list = []
-            #for i in range(chain_array.shape[-1]):
-            #    new_Es, new_Fs = calc_E_F(chain_array[:,i]) # new E
-            #    #del_Es_list.append(-(new_Es-initial_Es)) # dE
-            #    new_Fs_list.append(new_Fs)
-            ##del_Fs_array = np.array(del_Es_list)/np.transpose(Bmat_array, (1,0,2))
-            ##print(del_Fs_array[0][0])
-            ##print(new_Fs_list[0][0])
-            #print(np.shape(new_Fs_list))
-
-
-
-
     def collect_PRIMs(self):
         print("Collecting Primitive Internal Coordinates...")
         PRIMIC, connect, addcart = self.coordsys_dict["tric-p"]
         M = copy.deepcopy(self.M)
-        ic = self.params.coordsys
-        CoordClass, connect, addcart = self.coordsys_dict[ic.lower()]
+
+        CoordClass, connect, addcart = self.coordsys_dict['tric']
         IC = CoordClass(
             M,
             build=True,
@@ -385,7 +330,7 @@ class Interpolate:
             constraints=None,
         )
 
-        nDiv = self.params.frames
+        nDiv = self.params.frames - 1
 
         curr_coords_f = copy.deepcopy(self.reac)
         curr_coords_b = copy.deepcopy(self.prod)
@@ -427,18 +372,19 @@ class Interpolate:
                 PRIM_most_Internals = new_PRIM
 
             nDiv -= 1
-        str_internals = [x.__repr__() for x in PRIM_most_Internals.Internals]
 
-        for Distance in self.DistanceIC:
-            ind = str_internals.index(Distance)
-            del PRIM_most_Internals.Internals[ind]
-            del str_internals[ind]
-           #if Distance in str_internals:
-           #    print('Distance IC detected')
-        PRIM_most_Internals.add(Handoff(self.atoms_ind[0], self.atoms_ind[1], self.atoms_ind[2]))
-        PRIM_most_Internals.add(ReducedDistance(self.atoms_ind[0], self.atoms_ind[1], self.atoms_ind[2]))
+        if self.DistanceIC:
+            str_internals = [x.__repr__() for x in PRIM_most_Internals.Internals]
 
-        IC.Prims.checkFiniteDifferenceGrad(self.reac)
+            for Distance in self.DistanceIC:
+                ind = str_internals.index(Distance)
+                del PRIM_most_Internals.Internals[ind]
+                del str_internals[ind]
+
+            PRIM_most_Internals.add(Handoff(self.atoms_ind[0], self.atoms_ind[1], self.atoms_ind[2]))
+            PRIM_most_Internals.add(ReducedDistance(self.atoms_ind[0], self.atoms_ind[1], self.atoms_ind[2]))
+
+        #IC.Prims.checkFiniteDifferenceGrad(self.reac)
         self.PRIMs = PRIM_most_Internals
         print("Primitive Internal Coordinates are ready.")
 
@@ -512,16 +458,24 @@ def main():
     args_dict["interpolation"] = True
     M = Molecule(args_dict['coords'])[0]
     args_dict["customengine"] = nullengine(M)
+    RTRIC = False
+
+    if args_dict['coordsys'] == 'tric-r':
+        RTRIC = True
+        args_dict['coordsys'] = 'tric'
+
     params = IntpParams(**args_dict)
     M, engine = get_molecule_engine(**args_dict)
 
     TRIC = Interpolate(params, M, engine)
-    TRIC.analyze_M()
-    if params.coordsys == 'cart':
-        TRIC.cart_interpolate()
-    else:
+
+    if RTRIC:
+        TRIC.analyze_M()
         TRIC.collect_PRIMs()
-        TRIC.interpolate()
+        TRIC.RTRIC_interpolate()
+    else:
+        TRIC.simple_interpolate()
+
     #TRIC.optimize()
     #TRIC.mixed_interpolate()
     # TRIC.calculate_energies("simple")
