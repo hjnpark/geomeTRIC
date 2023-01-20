@@ -39,10 +39,7 @@ class Interpolate:
 
         # Coordinates in Angstrom
         self.M = M
-        self.M_updated = M[0]
 
-        self.interpolated_dict = {}
-        self.Energy_dict = {}
         self.coordsys_dict = {
             "cart": (CartesianCoordinates, False, False),
             "prim": (PrimitiveInternalCoordinates, True, False),
@@ -76,12 +73,6 @@ class Interpolate:
         self.atoms_ind = []
 
     def analyze_M(self):
-        ini_G = self.M_ini.topology
-        fin_G = self.M_fin.topology
-        G_diff = nx.difference(fin_G, ini_G)
-
-        #if len(G_diff.edges) > 1:
-        #    raise RuntimeError("It can't interpolate trajectories containing more than one chemical reaction step.")
 
         PRIMIC, connect, addcart = self.coordsys_dict["tric-p"]
         PRIM1 = PRIMIC(self.M_ini,
@@ -123,15 +114,10 @@ class Interpolate:
             constraints=None,
         )
 
-        #IC.Prims = self.PRIMs
         dq = IC.calcDiff(self.prod, self.reac)
         for i in range(nDiv):
-
-
             new_coords = IC.newCartesian(curr_coords, dq / nDiv)
-
             curr_coords = new_coords.copy()
-
             coord_list.append(curr_coords)
 
         self.interpolated_M.xyzs = [
@@ -196,12 +182,91 @@ class Interpolate:
         xyz_dir = os.path.join(self.dir, "interpolated")
         if not os.path.exists(xyz_dir):
             os.makedirs(xyz_dir)
+        fname = "interpolated_RTRIC"
+
         if self.DistanceIC:
-            ic += '_plus'
+            fname += '_plus'
+
         self.interpolated_M.write(
-            os.path.join(xyz_dir, "interpolated_RTRIC_%s.xyz" % ic)
+            os.path.join(xyz_dir, "%s.xyz" % fname)
         )
 
+    def collect_PRIMs(self):
+        print("Collecting Primitive Internal Coordinates...")
+        PRIMIC, connect, addcart = self.coordsys_dict["tric-p"]
+        M = copy.deepcopy(self.M)
+        TRIC_p = PRIMIC(
+            M,
+            connect=connect,
+            addcart=addcart,
+            warn=False,
+        )
+        CoordClass, connect, addcart = self.coordsys_dict['tric']
+        TRIC = CoordClass(
+            M,
+            Prims=TRIC_p,
+            connect=connect,
+            addcart=addcart,
+        )
+
+        nDiv = self.params.frames - 1
+
+        curr_coords_f = copy.deepcopy(self.reac)
+        curr_coords_b = copy.deepcopy(self.prod)
+        reac = copy.deepcopy(self.reac)
+        prod = copy.deepcopy(self.prod)
+
+        Initial_PRIM = copy.deepcopy(TRIC_p)
+        PRIM_most_Internals = Initial_PRIM
+
+        for i in range(nDiv):
+            TRIC.build_dlc_0(curr_coords_f)
+            dq_f = TRIC.calcDiff(prod, curr_coords_f)
+
+            new_coords_f = TRIC.newCartesian(curr_coords_f, dq_f / nDiv)
+
+            TRIC.build_dlc_0(curr_coords_b)
+            dq_b = TRIC.calcDiff(reac, curr_coords_b)
+
+            new_coords_b = TRIC.newCartesian(curr_coords_b, dq_b / nDiv)
+
+            curr_coords_f = new_coords_f.copy()
+            curr_coords_b = new_coords_b.copy()
+
+            M.xyzs = [reac.reshape(-1,3)/ang2bohr,
+                     curr_coords_f.reshape(-1,3)/ang2bohr,
+                     curr_coords_b.reshape(-1,3)/ang2bohr,
+                     prod.reshape(-1,3)/ang2bohr]
+
+            new_PRIM = PRIMIC(
+                M,
+                build=True,
+                connect=connect,
+                addcart=addcart,
+                constraints=None,
+                warn=False,
+            )
+            if len(new_PRIM.Internals) > len(PRIM_most_Internals.Internals):
+                PRIM_most_Internals = new_PRIM
+                TRIC.Prims = new_PRIM
+
+            nDiv -= 1
+
+        #PRIM_most_Internals = TRIC.Prims
+        if self.DistanceIC:
+            str_internals = [x.__repr__() for x in PRIM_most_Internals.Internals]
+
+            for Distance in self.DistanceIC:
+                ind = str_internals.index(Distance)
+                del PRIM_most_Internals.Internals[ind]
+                del str_internals[ind]
+
+            PRIM_most_Internals.add(Handoff(self.atoms_ind[0], self.atoms_ind[1], self.atoms_ind[2]))
+            PRIM_most_Internals.add(ReducedDistance(self.atoms_ind[0], self.atoms_ind[1], self.atoms_ind[2]))
+        # Uncomment the next line to check the analytical derivative values.
+        #IC.Prims.checkFiniteDifferenceGrad(self.reac)
+        self.PRIMs = PRIM_most_Internals
+        print("Primitive Internal Coordinates are ready.")
 
     def optimize(self, stepsize = 0.1):
         print("Optimizing the interpolated trajectory using TRIC system.")
@@ -316,137 +381,6 @@ class Interpolate:
 
         M.write("interpolated/optimized_%s.xyz" %self.params.coordsys)
 
-    def collect_PRIMs(self):
-        print("Collecting Primitive Internal Coordinates...")
-        PRIMIC, connect, addcart = self.coordsys_dict["tric-p"]
-        M = copy.deepcopy(self.M)
-
-        CoordClass, connect, addcart = self.coordsys_dict['tric']
-        IC = CoordClass(
-            M,
-            build=True,
-            connect=connect,
-            addcart=addcart,
-            constraints=None,
-        )
-
-        nDiv = self.params.frames - 1
-
-        curr_coords_f = copy.deepcopy(self.reac)
-        curr_coords_b = copy.deepcopy(self.prod)
-        reac = copy.deepcopy(self.reac)
-        prod = copy.deepcopy(self.prod)
-
-        PRIM_most_Internals = IC.Prims
-
-        for i in range(nDiv):
-            IC.build_dlc_0(curr_coords_f)
-            dq_f = IC.calcDiff(prod, curr_coords_f)
-
-            new_coords_f = IC.newCartesian(curr_coords_f, dq_f / nDiv)
-
-            IC.build_dlc_0(curr_coords_b)
-            dq_b = IC.calcDiff(reac, curr_coords_b)
-
-            new_coords_b = IC.newCartesian(curr_coords_b, dq_b / nDiv)
-
-            curr_coords_f = new_coords_f.copy()
-            curr_coords_b = new_coords_b.copy()
-
-            M.xyzs = [reac.reshape(-1,3)/ang2bohr,
-                     curr_coords_f.reshape(-1,3)/ang2bohr,
-                     curr_coords_b.reshape(-1,3)/ang2bohr,
-                     prod.reshape(-1,3)/ang2bohr]
-            #print(M.xyzs[0][0])
-            new_PRIM = PRIMIC(
-                M,
-                build=True,
-                connect=connect,
-                addcart=addcart,
-                constraints=None,
-                warn=False,
-            )
-
-            if len(new_PRIM.Internals) > len(PRIM_most_Internals.Internals):
-                IC.Prims = new_PRIM
-                PRIM_most_Internals = new_PRIM
-
-            nDiv -= 1
-
-        if self.DistanceIC:
-            str_internals = [x.__repr__() for x in PRIM_most_Internals.Internals]
-
-            for Distance in self.DistanceIC:
-                ind = str_internals.index(Distance)
-                del PRIM_most_Internals.Internals[ind]
-                del str_internals[ind]
-
-            PRIM_most_Internals.add(Handoff(self.atoms_ind[0], self.atoms_ind[1], self.atoms_ind[2]))
-            PRIM_most_Internals.add(ReducedDistance(self.atoms_ind[0], self.atoms_ind[1], self.atoms_ind[2]))
-
-        #IC.Prims.checkFiniteDifferenceGrad(self.reac)
-        self.PRIMs = PRIM_most_Internals
-        print("Primitive Internal Coordinates are ready.")
-
-    def calculate_energies(self, interpolation_type=None):
-        print("Calculating Energies...")
-        for ic, geos in self.interpolated_dict.items():
-            e_list = []
-            for xyz in geos:
-                E = self.engine.calc_new(xyz.flatten(), tempfile.mktemp())["energy"]
-                e_list.append(E)
-            self.Energy_dict[ic] = e_list
-        json_str = json.dumps(self.Energy_dict, indent=4)
-        with open(
-            os.path.join(self.dir, "%s_energies.json" % interpolation_type), "w"
-        ) as f:
-            f.write(json_str)
-
-    def plot(self):
-        import matplotlib.pyplot as plt
-
-        coordsys_dict = {
-            "simple_cart": ["Cartesian", ".--"],
-            "simple_prim": ["Primitive I.C.", "2--"],
-            "simple_dlc": ["Delocalized I.C.", "1--"],
-            "simple_hdlc": ["HDLC", "+--"],
-            "simple_tric": ["TRIC", "d--"],
-            "simple_tric-p": ["TRICP", "X--"],
-            "fwdbwd_cart": ["FB-Cartesian", "|--"],
-            "fwdbwd_prim": ["FB-Primitive I.C.", "4--"],
-            "fwdbwd_dlc": ["FB-Delocalized I.C.", "3--"],
-            "fwdbwd_hdlc": ["FB-HDLC", "h--"],
-            "fwdbwd_tric": ["FB-TRIC", "<--"],
-            "fwdbwd_tric-p": ["FB-TRICP", "^--"],
-            "mix_cart": ["M-Cartesian", "|--"],
-            "mix_prim": ["M-Primitive I.C.", "4--"],
-            "mix_dlc": ["M-Delocalized I.C.", "3--"],
-            "mix_hdlc": ["M-HDLC", "h--"],
-            "mix_tric": ["M-TRIC", "<--"],
-            "mix_tric-p": ["M-TRICP", "^--"],
-            "geodestic": ["Geodestic", "o--"],
-        }
-        label = []
-        e_array = []
-        for ic, es in self.Energy_dict.items():
-            label.append(ic)
-            e_array.append(es)
-
-        x = np.arange(len(e_array[0]))
-
-        plt.figure(figsize=(12, 8))
-        for i in range(len(e_array)):
-            plt.plot(
-                x,
-                e_array[i],
-                coordsys_dict[label[i]][-1],
-                label=coordsys_dict[label[i]][0],
-            )
-
-        plt.legend()
-        plt.xlabel("Frame")
-        plt.ylabel("Energy (Hartree)")
-        plt.savefig(os.path.join(self.dir, "energy_plot.png"), bbox_inches="tight")
 
 class nullengine:
     def __init__(self, M):
@@ -476,15 +410,6 @@ def main():
     else:
         TRIC.simple_interpolate()
 
-    #TRIC.optimize()
-    #TRIC.mixed_interpolate()
-    # TRIC.calculate_energies("simple")
-    # TRIC.fwd_bwd_interpolate()
-    # TRIC.mix_interpolate()
-    # TRIC.calculate_energies("mix")
-    # TRIC.calculate_energies("fwd_bwd")
-
-    # TRIC.plot()
     print("Done!")
 
 
