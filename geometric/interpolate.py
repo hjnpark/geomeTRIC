@@ -1,6 +1,4 @@
 import os, sys, json, copy, tempfile
-import networkx as nx
-
 from .params import parse_interpolate_args, IntpParams
 from .prepare import get_molecule_engine
 from .nifty import ang2bohr
@@ -8,10 +6,13 @@ from .molecule import EqualSpacing, Molecule
 from .internal import (
     CartesianCoordinates,
     PrimitiveInternalCoordinates,
-    DelocalizedInternalCoordinates, Handoff, ReducedDistance,
+    DelocalizedInternalCoordinates, DistanceDifference, ReducedDistance,
 )
 import numpy as np
 
+def rms_gradient(gradx):
+    atomgrad = np.sqrt(np.sum((gradx.reshape(-1,3))**2, axis = 1))
+    return np.sqrt(np.mean(atomgrad**2))
 
 class Interpolate:
     def __init__(self, params, M, engine):
@@ -35,6 +36,7 @@ class Interpolate:
             )
 
         self.elem = M.elem
+        self.na = len(self.elem)
         self.params = params
 
         # Coordinates in Angstrom
@@ -95,7 +97,7 @@ class Interpolate:
         if len(bond1) == 1 and len(bond2) == 1:
             atoms_ind = set([int(x)-1 for x in bond1[0].split()[-1].split('-') + bond2[0].split()[-1].split('-')])
             if len(atoms_ind) == 3:
-                print("Handoff and ReducedDistance IC will be used")
+                print("Handoff and DistanceDifference IC will be used")
                 self.atoms_ind = [x for x in atoms_ind]
                 self.DistanceIC = [bond1[0], bond2[0]]
 
@@ -172,9 +174,12 @@ class Interpolate:
 
         self.interpolated_coords = coord_list
 
+        ic = "RTRIC"
+        if self.DistanceIC:
+            ic += '_plus'
 
         print(
-            "Error in final interpolated vs. product structure (RTRIC%s):" % ic,
+            "Error in final interpolated vs. product structure (%s):" %ic,
             np.linalg.norm(curr_coords - self.prod),
         )
 
@@ -182,13 +187,10 @@ class Interpolate:
         xyz_dir = os.path.join(self.dir, "interpolated")
         if not os.path.exists(xyz_dir):
             os.makedirs(xyz_dir)
-        fname = "interpolated_RTRIC"
 
-        if self.DistanceIC:
-            fname += '_plus'
 
         self.interpolated_M.write(
-            os.path.join(xyz_dir, "%s.xyz" % fname)
+            os.path.join(xyz_dir, "interpolated_%s.xyz" %ic)
         )
 
     def collect_PRIMs(self):
@@ -252,7 +254,6 @@ class Interpolate:
 
             nDiv -= 1
 
-        #PRIM_most_Internals = TRIC.Prims
         if self.DistanceIC:
             str_internals = [x.__repr__() for x in PRIM_most_Internals.Internals]
 
@@ -261,122 +262,100 @@ class Interpolate:
                 del PRIM_most_Internals.Internals[ind]
                 del str_internals[ind]
 
-            PRIM_most_Internals.add(Handoff(self.atoms_ind[0], self.atoms_ind[1], self.atoms_ind[2]))
+            PRIM_most_Internals.add(DistanceDifference(self.atoms_ind[0], self.atoms_ind[1], self.atoms_ind[2]))
             PRIM_most_Internals.add(ReducedDistance(self.atoms_ind[0], self.atoms_ind[1], self.atoms_ind[2]))
         # Uncomment the next line to check the analytical derivative values.
         #IC.Prims.checkFiniteDifferenceGrad(self.reac)
         self.PRIMs = PRIM_most_Internals
         print("Primitive Internal Coordinates are ready.")
 
-    def optimize(self, stepsize = 0.1):
+    def applyCartesianGrad(self, xyz, gradq, n, IC):
+        xyz = xyz.reshape(-1, self.na, 3)
+        Bmat = IC.wilsonB(xyz[n])
+        Gx = np.array(np.matrix(Bmat.T)*np.matrix(gradq).T).flatten()
+        return Gx
+
+    def calc_straightnes(self, xyz, IC):
+        xyz = xyz.reshape(len(xyz), -1)
+        straight = [1.0]
+        for n in range(1, len(xyz) - 1):
+            IC.build_dlc_0(xyz[n])
+            drplus = IC.calcDiff(xyz[n+1], xyz[n])
+            drminus = IC.calcDiff(xyz[n-1], xyz[n])
+            drplus /= np.linalg.norm(drplus)
+            drminus /= np.linalg.norm(drminus)
+            straight.append(np.dot(drplus, -drminus))
+        straight.append(1.0)
+        return straight
+
+    def optimize(self):
         print("Optimizing the interpolated trajectory using TRIC system.")
-        str_internals = [x.__repr__() for x in self.PRIMs.Internals]
-
-        for Distance in self.DistanceIC:
-            ind = str_internals.index(Distance)
-            del self.PRIMs.Internals[ind]
-            del str_internals[ind]
-
-        self.PRIMs.add(Handoff(self.atoms_ind[0], self.atoms_ind[1], self.atoms_ind[2]))
-        self.PRIMs.add(ReducedDistance(self.atoms_ind[0], self.atoms_ind[1], self.atoms_ind[2]))
-
+        if not self.PRIMs:
+            self.collect_PRIMs()
         M = self.M[0]
         CoordClass, connect, addcart = self.coordsys_dict['tric']
-        def calc_E_F(chain):
-            k = 5
-            E = []
-            F = []
-            for i in range(len(chain)):
-                M.xyzs = [chain[i].reshape(-1, 3) / ang2bohr]
-                IC = CoordClass(
-                   M,
-                   build=True,
-                   Prims=self.PRIMs,
-                   connect=connect,
-                   addcart=addcart,
-                   constraints=None,
-                )
-                #IC.build_dlc_0(chain[i])
-                #IC.Vecs = self.Vecs_list[i]
-                #IC.Internals = self.Internals_list[i]
-                d1, d2 = 0, 0
-                if i > 0:
-                    d1 = IC.calcDiff(chain[i-1], chain[i])
-                if i < len(chain) -1:
-                    d2 = IC.calcDiff(chain[i+1], chain[i])
+        chain = np.array(self.interpolated_coords.copy())
 
-                d1_E = np.sum(np.square(d1))
-                d2_E = np.sum(np.square(d2))
-                E.append(k*(d1_E + d2_E))
+        TRIC = CoordClass(
+            M,
+            build=True,
+            Prims=self.PRIMs,
+            connect=connect,
+            addcart=addcart,
+            constraints=None,
+        )
+        iteration=0
+        k = 1
 
-                d1_F = -d1
-                d2_F = d2
-                F.append(2*k*(d1_F + d2_F))
-
-            return np.array(E), np.array(F) # (nimages, IC)
-
-        chain_coords = self.interpolated_coords.copy()
-        E_array, F_array = calc_E_F(chain_coords)#, IC)
-        tot_E = np.sum(E_array)
-        mean_F = np.mean(np.abs(F_array))
-        max_F = np.max(np.abs(F_array))
-
-        iteration = 0
-        stepsize = 0.1
         while True:
             if iteration > 100:
                 print("Reached the maximum iteration number")
                 break
-            new_coords = []
+
+            straight = self.calc_straightnes(chain, TRIC) # Delete straight
+            gradients = np.zeros_like(chain)
+            for n in range(1, len(chain)-1):
+                TRIC.clearCache()
+                TRIC.build_dlc_0(chain[n])
+                fplus = 1.0 if n == (len(chain) - 2) else 0.5
+                fminus = 1.0 if n == 1 else 0.5
+
+                drplus = TRIC.calcDiff(chain[n+1], chain[n])
+                drminus = TRIC.calcDiff(chain[n-1], chain[n])
+
+                force_s_plus = fplus*k*drplus
+                force_s_minus = fminus*k*drminus
+
+                factor = 1.0 + 16*(1.0 - straight[n])**2
+
+                IC_disp = (force_s_plus + force_s_minus) * factor
+                gradients[n] += self.applyCartesianGrad(chain, IC_disp, n, TRIC) #np.array(np.matrix(TRIC.wilsonB(chain[n]).T) * np.matrix(IC_disp).T).flatten()
+
+                if n > 1 :
+                    gradients[n-1] -= self.applyCartesianGrad(chain, force_s_minus, n-1, TRIC)
+
+                if n < len(chain) -2:
+                    gradients[n+1] -= self.applyCartesianGrad(chain, force_s_plus, n+1, TRIC)
+
+
+
             print("-----------Iteration: %i-------------" %iteration)
-            print("Total Energy",tot_E)
-            print("Mean Force",mean_F)
-            print("Max Force",max_F)
+            rmsg = [rms_gradient(gradients[x]) for x in range(1, len(gradients)-1)]
+            avgg = np.mean(rmsg)
+            maxg = np.max(rmsg)
+            print("Mean Force",avgg)
+            print("Max Force",maxg)
 
-            for i, forces in enumerate(F_array):
-                if i == 0 or i == len(F_array)-1:
-                    new_coords.append(chain_coords[i])
-                else:
-                    M.xyzs = [chain_coords[i].reshape(-1, 3) / ang2bohr]
-                    forces /= np.linalg.norm(forces)
-                    IC = CoordClass(
-                       M,
-                       build=True,
-                       connect=connect,
-                       addcart=addcart,
-                       constraints=None,
-                    )
-                    new_coords.append(IC.newCartesian(chain_coords[i], forces*stepsize))
-
-            new_E_array, new_F_array = calc_E_F(new_coords)
-            del_E_array = np.abs(new_E_array - E_array)
-            new_tot_E = np.sum(new_E_array)
-            new_mean_F = np.mean(np.abs(new_F_array))
-            new_max_F = np.max(np.abs(new_F_array))
-
-            del_E = new_tot_E-tot_E
-            del_mean_F = new_mean_F-mean_F
-            del_max_F = new_max_F-max_F
-            print("\ndel Total Energy",del_E)
-            print("max del E", np.max(del_E_array))
-            print("del Energy percentage", del_E/tot_E * 100)
-            print("del Mean Force",del_mean_F)
-            print("del Max Force",del_max_F)
-
-            if mean_F < 0.025 and max_F < 0.05:
+            if avgg < 0.025 and maxg < 0.05:
                 print("Converged")
                 break
 
             print("Updating..")
-            F_array = new_F_array.copy()
-            tot_E = new_tot_E.copy()
-            mean_F = new_mean_F.copy()
-            max_F = new_max_F.copy()
-            chain_coords = new_coords.copy()
+            chain += gradients/np.linalg.norm(gradients)*0.01
             iteration += 1
 
         M.xyzs = [
-                coords.reshape(-1, 3) / ang2bohr for coords in chain_coords
+                coords.reshape(-1, 3) / ang2bohr for coords in chain
             ]
 
         M.write("interpolated/optimized_%s.xyz" %self.params.coordsys)
@@ -410,6 +389,7 @@ def main():
     else:
         TRIC.simple_interpolate()
 
+    #TRIC.optimize()
     print("Done!")
 
 

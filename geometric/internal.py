@@ -761,7 +761,7 @@ class RotationC(PrimitiveCoordinate):
         second_derivatives = deriv2_all[:, :, :, :, 2]*self.w
         return second_derivatives
 
-class Handoff(PrimitiveCoordinate):
+class DistanceDifference(PrimitiveCoordinate):
     def __init__(self, a, b, c):
         self.a = a
         self.b = b
@@ -770,7 +770,7 @@ class Handoff(PrimitiveCoordinate):
         self.isPeriodic = False
 
     def __repr__(self):
-        return "Handoff %i-%i-%i" % (self.a+1, self.b+1, self.c+1)
+        return "DistanceDifference %i-%i-%i" % (self.a+1, self.b+1, self.c+1)
 
     def __eq__(self, other):
         if type(self) is not type(other): return False
