@@ -275,19 +275,6 @@ class Interpolate:
         Gx = np.array(np.matrix(Bmat.T)*np.matrix(gradq).T).flatten()
         return Gx
 
-    def calc_straightnes(self, xyz, IC):
-        xyz = xyz.reshape(len(xyz), -1)
-        straight = [1.0]
-        for n in range(1, len(xyz) - 1):
-            IC.build_dlc_0(xyz[n])
-            drplus = IC.calcDiff(xyz[n+1], xyz[n])
-            drminus = IC.calcDiff(xyz[n-1], xyz[n])
-            drplus /= np.linalg.norm(drplus)
-            drminus /= np.linalg.norm(drminus)
-            straight.append(np.dot(drplus, -drminus))
-        straight.append(1.0)
-        return straight
-
     def optimize(self):
         print("Optimizing the interpolated trajectory using TRIC system.")
         if not self.PRIMs:
@@ -306,13 +293,12 @@ class Interpolate:
         )
         iteration=0
         k = 1
-
         while True:
-            if iteration > 100:
+            if iteration > 500:
                 print("Reached the maximum iteration number")
                 break
 
-            straight = self.calc_straightnes(chain, TRIC) # Delete straight
+            energy = []
             gradients = np.zeros_like(chain)
             for n in range(1, len(chain)-1):
                 TRIC.clearCache()
@@ -326,16 +312,15 @@ class Interpolate:
                 force_s_plus = fplus*k*drplus
                 force_s_minus = fminus*k*drminus
 
-                factor = 1.0 + 16*(1.0 - straight[n])**2
+                IC_disp = force_s_plus + force_s_minus
 
-                IC_disp = (force_s_plus + force_s_minus) * factor
                 gradients[n] += self.applyCartesianGrad(chain, IC_disp, n, TRIC) #np.array(np.matrix(TRIC.wilsonB(chain[n]).T) * np.matrix(IC_disp).T).flatten()
+                energy.append(fplus * k * np.dot(drplus, drplus) + fminus * k * np.dot(drminus,drminus))
+                #if n > 1 :
+                #    gradients[n-1] -= self.applyCartesianGrad(chain, force_s_minus, n-1, TRIC)
 
-                if n > 1 :
-                    gradients[n-1] -= self.applyCartesianGrad(chain, force_s_minus, n-1, TRIC)
-
-                if n < len(chain) -2:
-                    gradients[n+1] -= self.applyCartesianGrad(chain, force_s_plus, n+1, TRIC)
+                #if n < len(chain) -2:
+                #    gradients[n+1] -= self.applyCartesianGrad(chain, force_s_plus, n+1, TRIC)
 
 
 
@@ -343,10 +328,11 @@ class Interpolate:
             rmsg = [rms_gradient(gradients[x]) for x in range(1, len(gradients)-1)]
             avgg = np.mean(rmsg)
             maxg = np.max(rmsg)
+            print("Energy", sum(energy))
             print("Mean Force",avgg)
             print("Max Force",maxg)
 
-            if avgg < 0.025 and maxg < 0.05:
+            if avgg < 0.005 and maxg < 0.01:
                 print("Converged")
                 break
 
