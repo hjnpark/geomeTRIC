@@ -19,11 +19,13 @@ setup(
     entry_points={'console_scripts': [
         'geometric-optimize = geometric.optimize:main',
         'geometric-interpolate = geometric.interpolate:main',
+        'geometric-neb = geometric.neb:main'
     ]},
     install_requires=[
         'numpy>=1.11',
         'networkx',
         'six',
+        'scipy',
     ],
     tests_require=[
         'pytest',

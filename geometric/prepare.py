@@ -183,7 +183,7 @@ def get_molecule_engine(**kwargs):
             M.mult = tcin.get('spinmult',1)
             # The TeraChem engine needs to write rst7 files before calling TC
             # and also make sure the prmtop and qmindices.txt files are present.
-            engine = TeraChem(M, tcin, dirname=dirname)
+            engine = TeraChem(M[-1], tcin, dirname=dirname)
         elif engine_str == 'qchem':
             logger.info("Q-Chem engine selected. Expecting Q-Chem input for gradient calculation.\n")
             # The file from which we make the Molecule object
@@ -311,7 +311,13 @@ def get_molecule_engine(**kwargs):
     arg_coords = kwargs.get('coords', None)
     if arg_coords is not None:
         M.load_frames(arg_coords)
-        if kwargs.get('interpolation', False):
+        if kwargs.get('neb', False):
+            images = kwargs.get('images', 11)
+            M1 = M
+            print("Input coordinates have %i frames. The following will be used to initialize NEB images:" % len(M1))
+            print(', '.join(["%i" % (int(round(i))) for i in np.linspace(0, len(M1)-1, images)]))
+            M = M1[np.array([int(round(i)) for i in np.linspace(0, len(M1)-1, images)])]
+        elif kwargs.get('interpolation', False):
             print("Trajectory between the two provided geometries will be interpolated.")
             M = M[::len(M)-1]
         else:
