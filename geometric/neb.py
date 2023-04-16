@@ -2262,8 +2262,8 @@ def qualitycheck(
     if Quality < -1 and rejectOk:
         # Reject the step and take a smaller one from the previous iteration
         Y = old_Y.copy()
-        GW = old_GW.copy()
-        GP = old_GP.copy()
+        GW = np.array(old_GW.copy())
+        GP = np.array(old_GP.copy())
         # LPW 2017-04-08: Removed deepcopy to save memory.
         # If unexpected behavior appears, check here.
         chain = old_chain
@@ -2913,8 +2913,6 @@ def prepare(info_dict):
         )
     )
 
-    GW = chain.get_global_grad("total", "working")
-    GP = chain.get_global_grad("total", "plain")
     HW = chain.guess_hessian_working.copy()
     HP = chain.guess_hessian_plain.copy()
     dy, expect, expectG, ForceRebuild = chain.CalcInternalStep(trust, HW, HP)
@@ -2925,10 +2923,9 @@ def prepare(info_dict):
     attrs_prev = check_attr(chain)
 
     temp = {
-        "Ys": [chain.get_internal_all().tolist()],
-        "GWs": [GW.tolist()],
-        "GPs": [GP.tolist()],
         "Y_prev": chain.get_internal_all().tolist(),
+        "GW_prev": chain.get_global_grad("total", "working").tolist(),
+        "GP_prev": chain.get_global_grad("total", "plain").tolist(),
         "HW_prev": HW.tolist(),
         "HP_prev": HP.tolist(),
         "attrs_new": attrs_new,
@@ -2996,30 +2993,12 @@ def nextchain(info_dict):
     chain.ComputeGuessHessian(full=False, blank=isinstance(engine, Blank))
     chain_prev.ComputeGuessHessian(full=False, blank=isinstance(engine, Blank))
 
-    GWs = info_dict.get("GWs")
-    GPs = info_dict.get("GPs")
-    Ys = info_dict.get("Ys")
 
-    #Y = chain.get_internal_all()
-    Y_prev = np.array(Ys[-1])#info_dict.get("prev_Y")
-    GW_prev = np.array(GWs[-1])
-    GP_prev = np.array(GPs[-1])
+    Y_prev = info_dict.get("Y_prev")
+    GW_prev = info_dict.get("GW_prev")
+    GP_prev = info_dict.get("GP_prev")
 
     chain.ComputeChain(result=result)
-
-    HW0 = chain.guess_hessian_working.copy()
-    HP0 = chain.guess_hessian_plain.copy()
-
-    GWs.append(chain.get_global_grad("total", "working").tolist())
-    GPs.append(chain.get_global_grad("total", "plain").tolist())
-    Ys.append(chain.get_internal_all().tolist())
-
-    for i in range(len(Ys)-1):
-        BFGSUpdate(np.array(Ys[i+1]), np.array(Ys[i]), np.array(GWs[i+1]), np.array(GWs[i]), HW0, params, Eig=False)
-        BFGSUpdate(np.array(Ys[i+1]), np.array(Ys[i]), np.array(GPs[i+1]), np.array(GPs[i]), HP0, params, Eig=False)
-
-    #HW_prev = HW0
-    #HP_prev = HP0
 
     chain, Y, GW, GP, HW, HP, c_hist, Quality = compare(
         chain_prev,
@@ -3070,12 +3049,11 @@ def nextchain(info_dict):
         attrs_prev = check_attr(chain_prev)
         newcoords = chaintocoords(chain)
         temp = {
-            "Ys" : [Ys[-1]],
-            "GWs": [GWs[-1]],
-            "GPs": [GPs[-1]],
             "Y_prev": chain_prev.get_internal_all().tolist(),
             "HW_prev": HW.tolist(),
             "HP_prev": HP.tolist(),
+            "GW_prev": GW.tolist(),
+            "GP_prev": GP.tolist(),
             "attrs_new": attrs_new,
             "attrs_prev": attrs_prev,
             "expect": expect,
@@ -3147,12 +3125,11 @@ def nextchain(info_dict):
         attrs_prev = check_attr(chain_prev)
         newcoords = chaintocoords(chain)
         temp = {
-            "Ys": Ys[:-1],
-            "GWs": GWs[:-1],
-            "GPs": GPs[:-1],
             "Y_prev": chain_prev.get_internal_all().tolist(),
             "HW_prev": HW.tolist(),
             "HP_prev": HP.tolist(),
+            "GP_prev": GP.tolist(),
+            "GW_prev": GW.tolist(),
             "attrs_new": attrs_new,
             "attrs_prev": attrs_prev,
             "trust": trust,
@@ -3188,9 +3165,6 @@ def nextchain(info_dict):
 
     if H_reset:
         result = info_dict.get("result_prev")
-        Ys[-1] = Y.tolist()
-        GWs[-1] = GW.tolist()
-        GPs[-1] = GP.tolist()
 
     (
         chain_prev,
@@ -3222,12 +3196,11 @@ def nextchain(info_dict):
     attrs_new = check_attr(chain)
     attrs_prev = check_attr(chain_prev)
     temp = {
-        "Ys" : Ys,
-        "GWs": GWs,
-        "GPs": GPs,
         "Y_prev": chain_prev.get_internal_all().tolist(),
         "HW_prev": HW.tolist(),
         "HP_prev": HP.tolist(),
+        "GW_prev": GW.tolist(),
+        "GP_prev": GP.tolist(),
         "attrs_new": attrs_new,
         "attrs_prev": attrs_prev,
         "trust": trust,
