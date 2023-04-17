@@ -3217,10 +3217,10 @@ def nextchain(info_dict):
     }
     newcoords = chaintocoords(chain)
     info_dict.update(temp)
-    for k, v in info_dict.items():
-        mem_size = sys.getsizeof(dict_to_binary({k: v})) * 1e-9
-        if mem_size > 1e-1:
-            print("Size of %s : %f Gb" % (k, mem_size))
+    #for k, v in info_dict.items():
+    #    mem_size = sys.getsizeof(dict_to_binary({k: v})) * 1e-9
+    #    if mem_size > 1e-1:
+    #        print("Size of %s : %f Gb" % (k, mem_size))
     return newcoords, info_dict
 
 
