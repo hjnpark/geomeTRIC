@@ -2262,8 +2262,8 @@ def qualitycheck(
     if Quality < -1 and rejectOk:
         # Reject the step and take a smaller one from the previous iteration
         Y = old_Y.copy()
-        GW = np.array(old_GW.copy())
-        GP = np.array(old_GP.copy())
+        GW = old_GW.copy()
+        GP = old_GP.copy()
         # LPW 2017-04-08: Removed deepcopy to save memory.
         # If unexpected behavior appears, check here.
         chain = old_chain
@@ -2336,8 +2336,8 @@ def compare(
             Y,
             GW,
             GP,
-            np.array(HW),
-            np.array(HP),
+            HW,
+            HP,
             c_hist,
             Quality_old,
         )
@@ -2733,14 +2733,6 @@ def check_attr(chain):
 
     return attrs
 
-
-def dict_to_binary(the_dict):
-    import msgpack
-
-    bin = msgpack.dumps(the_dict)
-    return bin
-
-
 def chaintocoords(chain, ang=False):
     """
     Extracts Cartesian coordinates from an ElasticBand object.
@@ -3119,7 +3111,7 @@ def nextchain(info_dict):
             GP,
             HW,
             HP,
-            info_dict.get("result_prev"),
+            result_prev,
         )
         attrs_new = check_attr(chain)
         attrs_prev = check_attr(chain_prev)
@@ -3128,8 +3120,8 @@ def nextchain(info_dict):
             "Y_prev": chain_prev.get_internal_all().tolist(),
             "HW_prev": HW.tolist(),
             "HP_prev": HP.tolist(),
-            "GP_prev": GP.tolist(),
-            "GW_prev": GW.tolist(),
+            "GP_prev": GP,
+            "GW_prev": GW,
             "attrs_new": attrs_new,
             "attrs_prev": attrs_prev,
             "trust": trust,
@@ -3141,7 +3133,7 @@ def nextchain(info_dict):
             "coord_ang_prev": chaintocoords(chain_prev, True),
             "lastforce": LastForce,
             "forcerebuild": ForceRebuild,
-            "result_prev": info_dict.get("result_prev"),
+            "result_prev": result_prev,
             "geometry": [],
         }
         info_dict.update(temp)
@@ -3160,11 +3152,11 @@ def nextchain(info_dict):
         GP_prev,
         LastForce,
         params,
-        info_dict.get("result_prev"),
+        result_prev,
     )
 
     if H_reset:
-        result = info_dict.get("result_prev")
+        result = result_prev
 
     (
         chain_prev,
@@ -3191,7 +3183,7 @@ def nextchain(info_dict):
         GP,
         HW,
         HP,
-        info_dict.get("result_prev"),
+        result_prev,
     )
     attrs_new = check_attr(chain)
     attrs_prev = check_attr(chain_prev)
@@ -3217,10 +3209,6 @@ def nextchain(info_dict):
     }
     newcoords = chaintocoords(chain)
     info_dict.update(temp)
-    #for k, v in info_dict.items():
-    #    mem_size = sys.getsizeof(dict_to_binary({k: v})) * 1e-9
-    #    if mem_size > 1e-1:
-    #        print("Size of %s : %f Gb" % (k, mem_size))
     return newcoords, info_dict
 
 
