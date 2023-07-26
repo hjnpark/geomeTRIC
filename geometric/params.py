@@ -79,7 +79,7 @@ class OptParams(object):
         # Because MECI optimizations have more "sharpness" in their PES, it is set
         # PS: If the PES is inherently rough on extremely small length scales,
         # then the optimization is not expected to converge regardless of tmin.
-        self.tmin = kwargs.get('tmin', min(1.0e-4 if (self.meci or self.transition) else 1.2e-3, self.Convergence_drms))
+        self.tmin = kwargs.get('tmin', min(1.0e-4 if (self.meci or self.transition or self.irc) else 1.2e-3, self.Convergence_drms))
         # Use maximum component instead of RMS displacement when applying trust radius.
         self.usedmax = kwargs.get('usedmax', False)
         # Sanity checks on trust radius

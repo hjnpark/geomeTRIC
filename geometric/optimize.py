@@ -481,22 +481,16 @@ class Optimizer(object):
         # Vector to the pivot point
         if self.Iteration == 0:
             # If it's the very first step, pick the eigenvector of the imaginary frequency and pick the direction
-            logger.info('\nFirst, following the imaginary mode vector\n')
-            if self.TSWavenum[1] < 0:
-                raise IRCError("There are more than one imaginary vibrational mode. Please optimize the structure and try again.\n")
-            elif self.TSWavenum[0] > 0:
-                raise IRCError("No imaginary mode detected. Please optimize the structure and try again.\n")
-
             self.IRC_adjfactor = np.linalg.norm(self.TSNormal_modes_x[0] * np.sqrt(self.IC.mass))
             self.IRC_init_step = self.trust * ang2bohr * self.IRC_adjfactor
             logger.info("Initial step-size: %.5f \n" %self.IRC_init_step)
 
             # Following the imaginary mode vector
-            Im_mode = self.TSNormal_modes_x[0]
-            Im_mode *= self.IRC_direction
-            v = self.IC.calcDiff(X0 + Im_mode, X0)
-            X = self.IC.newCartesian(X0, v)
-            v = self.IC.calcDiff(X, X0)
+            #Im_mode = self.TSNormal_modes_x[0]
+            #Im_mode *= self.IRC_direction
+            #v = self.IC.calcDiff(X0 + Im_mode, X0)
+            #X = self.IC.newCartesian(X0, v)
+            #v = self.IC.calcDiff(X, X0)
   
             #if self.IRC_init_v is None:
             #    #MWGMat_sqrt_inv, MWGMat_sqrt = self.IC.GInverse_SVD(self.X, sqrt=True, invMW=True)
@@ -507,8 +501,7 @@ class Optimizer(object):
             #else:
             #    v = self.IRC_init_v
 
-        else:
-            v = self.G.copy()  # Internal coordinate gradients
+        v = self.G.copy()  # Internal coordinate gradients
 
         invMW_v = np.dot(MWGMat, v)# Inverse mass-weighted vector
         # Normalization factor
@@ -742,34 +735,11 @@ class Optimizer(object):
         criteria_met = Converged_energy and Converged_grms and Converged_drms and Converged_gmax and Converged_dmax
         IRC_converged = Converged_energy and Converged_grms and Converged_gmax
 
-        def reset_irc():
-            self.IRC_direction = -1
-            self.Iteration = 0
-            self.X = self.X_hist[0].copy()
-            self.IC = self.IC0
-            self.checkCoordinateSystem(cartesian=isinstance(self.IC,CartesianCoordinates))
-            self.E = self.progress.qm_energies[0]
-            self.gradx = self.progress.qm_grads[0]
-            self.progress = self.progress[::-1]#[:-1]
-            self.trust = self.params.trust
-            self.IRC_opt = False
-            self.trustprint = "="
-            self.params.tmax = self.trust
-            self.IRC_total_disp = 0.0
-            self.Qprev = 1.0
-            #self.calcEnergyForce()
-            self.prepareFirstStep()
-
         if params.irc:
             if self.Iteration > params.maxiter:
-                if self.IRC_direction == -1:
-                    logger.info("\nIRC backward direction reached maximum iteration number\n")
-                    logger.info("Terminating IRC\n")
-                    self.state = OPT_STATE.FAILED
-                else:
-                    logger.info("\nIRC forward direction reached maximum iteration number\n")
-                    logger.info("IRC backward direction starts here\n\n")
-                    reset_irc()
+                logger.info("\nIRC backward direction reached maximum iteration number\n")
+                logger.info("Terminating IRC\n")
+                self.state = OPT_STATE.FAILED
                 return
 
             IC_check = self.IC.bork
@@ -791,14 +761,9 @@ class Optimizer(object):
 
             if self.IRC_total_disp > 5*self.IRC_init_step:
                 if criteria_met :
-                    if self.IRC_direction == 1:
-                        logger.info("\nIRC forward direction converged\n")
-                        logger.info("IRC backward direction starts here\n\n")
-                        reset_irc()
-                    elif self.IRC_direction == -1:
-                        self.SortedEigenvalues(self.H)
-                        logger.info("Converged! =D\n")
-                        self.state = OPT_STATE.CONVERGED
+                    self.SortedEigenvalues(self.H)
+                    logger.info("Converged! =D\n")
+                    self.state = OPT_STATE.CONVERGED
                     return
                 elif (IRC_converged or self.IRC_dystep < 1e-4) and not self.IRC_opt:
                     self.IRC_opt = True
