@@ -199,6 +199,24 @@ class Structure(object):
             internals = self.IC.calculate(coords)
         return internals
 
+    def ConvertICGradToCart(self, gradq, xyz=None):
+        """ 
+        Given a gradient in internal coordinates, convert it back to a Cartesian gradient.
+        Unfortunate "reversal" in the interface with respect to IC.calcGrad which takes xyz first!
+        """
+        if xyz is None: xyz = self.cartesians
+        Bmat = self.IC.wilsonB(xyz)
+        Gx = np.array(np.matrix(Bmat.T)*np.matrix(gradq).T).flatten()
+        return Gx
+
+    def ConvertCartGradToIC(self, gradx, xyz=None):
+        """ 
+        Given a gradient in Cartesian coordinates, convert it back to an internal gradient. 
+        Unfortunate "reversal" in the interface with respect to IC.calcGrad which takes xyz first!
+        """
+        if xyz is None: xyz = self.cartesians
+        return self.IC.calcGrad(self.cartesians, gradx)
+
     def ComputeEnergyGradient(self, result=None):
         """Compute energies and Cartesian gradients for the current structure."""
         # If the result (energy and gradient in a dictionary) is provided, skip the calculations.
@@ -237,7 +255,7 @@ class Structure(object):
 
 class Chain(object):
     """Class representing a chain of states."""
-    def __init__(self, molecule, engine, tmpdir, params, coords=None):
+    def __init__(self, molecule, engine, tmpdir, coordtype, params, coords=None):
         """
         Create a Chain object.
 
@@ -260,8 +278,7 @@ class Chain(object):
         self.M = deepcopy(molecule)
         self.engine = engine
         self.tmpdir = tmpdir
-        # HP 5/2/2023: coordtype is set to 'cart' here.
-        self.coordtype='cart'
+        self.coordtype = coordtype
         # coords is a 2D array with dimensions (N_image, N_atomx3) in atomic units
         if coords is not None:
             # Reshape the array if we passed in a flat array
@@ -343,7 +360,7 @@ class Chain(object):
         float
             The RMSD between the updated and original Cartesian coordinates
         """
-        cplus = self.TakeStep(dy, verbose=False)
+        cplus = self.TakeStep(dy, verbose=verbose)
         return ChainRMSD(self, cplus)
 
     def clearCalcs(self, clearEngine=True):
@@ -456,9 +473,7 @@ class Chain(object):
             dy, expect = trust_step(iopt, v0, X, G, H, None, False, self.params.verbose)
         # Expected energy change should be calculated from PlainGrad
         GP = self.get_global_grad("total", "plain")
-        expect = flat(0.5 * np.linalg.multi_dot([row(dy), HP, col(dy)]))[0] + np.dot(
-            dy, GP
-        )
+        expect = flat(0.5 * np.linalg.multi_dot([row(dy), HP, col(dy)]))[0] + np.dot(dy, GP)
         expectG = flat(np.dot(np.array(H), col(dy))) + G
         return dy, expect, expectG, ForceRebuild
 
@@ -655,16 +670,12 @@ class ElasticBand(Chain):
 
     def set_tangent(self, i, value):
         if i < 1 or i > (len(self) - 2):
-            raise NEBBandTangentError(
-                "Tangents are only defined for 1 .. N-2 (in a chain indexed from 0 .. N-1)"
-            )
+            raise NEBBandTangentError("Tangents are only defined for 1 .. N-2 (in a chain indexed from 0 .. N-1)")
         self._tangents[i] = value
 
     def get_tangent(self, i):
         if i < 1 or i > (len(self) - 2):
-            raise NEBBandTangentError(
-                "Tangents are only defined for 1 .. N-2 (in a chain indexed from 0 .. N-1)"
-            )
+            raise NEBBandTangentError("Tangents are only defined for 1 .. N-2 (in a chain indexed from 0 .. N-1)")
         return self._tangents[i]
 
     def get_tangent_all(self):
@@ -938,7 +949,7 @@ class ElasticBand(Chain):
             rmsds.append(rmsd)
         return rmsds
 
-    def calc_straightness(self, xyz0, analyze=False):
+    def calc_straightness(self, xyz0):
         xyz = xyz0.reshape(len(self), -1)
         xyz.flags.writeable = False
         straight = [1.0]
@@ -1301,6 +1312,112 @@ class ElasticBand(Chain):
         self.set_global_grad(grad_s_i, "spring", "plain")
         self.set_global_grad(grad_s_p_i, "spring", "projected")
 
+    def ComputeProjectedGrad_IC(self):
+        xyz = self.get_cartesian_all(endpts=True).reshape(len(self),-1)
+        grad_v_c = np.array([self.Structures[n].grad_cartesian for n in range(len(self))])
+        grad_v_i = self.GlobalIC.calcGrad(xyz, grad_v_c.flatten())
+        grad_v_p_c = np.zeros_like(grad_v_c)
+        force_s_c = np.zeros_like(grad_v_c)
+        force_s_p_c = np.zeros_like(grad_v_c)
+        straight = self.calc_straightness(xyz)
+
+        # if not hasattr(self, 'prevGrad'):
+        #     self.prevGrad = OrderedDict()
+        #     self.prevB = OrderedDict()
+        #     printStuff = False
+        # else:
+        #     printStuff = True
+
+        for n in range(1, len(self)-1):
+            fplus = 1.0 if n == (len(self)-2) else 0.5
+            fminus = 1.0 if n == 1 else 0.5
+            drplus = self.GlobalIC.calcDisplacement(xyz, n+1, n)
+            drminus = self.GlobalIC.calcDisplacement(xyz, n-1, n)
+            force_s_Plus  = fplus*self.k*drplus
+            force_s_Minus = fminus*self.k*drminus
+            factor = 1.0 + 16*(1.0-straight[n])**2
+            force_s_c[n] += self.GlobalIC.applyCartesianGrad(xyz, factor*(force_s_Plus+force_s_Minus), n, n)
+            # Bmat = self.GlobalIC.ImageICs[n].wilsonB(xyz.reshape(len(self), -1)[n])
+            # fMinus_cart = np.array(np.matrix(Bmat.T)*np.matrix(force_s_Minus).T).flatten()
+            # fPlus_cart = np.array(np.matrix(Bmat.T)*np.matrix(force_s_Plus).T).flatten()
+            tau = self.get_tangent(n)
+            # Force from the spring in the tangent direction
+            ndrplus = np.linalg.norm(drplus)
+            ndrminus = np.linalg.norm(drminus)
+            force_s_p_c[n] = self.GlobalIC.applyCartesianGrad(xyz, self.k*(ndrplus-ndrminus)*tau, n, n)
+            # Now get the perpendicular component of the force from the potential
+            grad_v_im = self.GlobalIC.ImageICs[n].calcGrad(xyz[n], grad_v_c[n])
+            grad_v_p_c[n] = self.GlobalIC.applyCartesianGrad(xyz, grad_v_im-np.dot(grad_v_im,tau)*tau, n, n)
+
+            if self.climbSet and n in self.climbers:
+                # The force in the direction of the tangent is reversed
+                grad_v_p_c[n] = self.GlobalIC.applyCartesianGrad(xyz, grad_v_im-2*np.dot(grad_v_im,tau)*tau, n, n)
+                # force_s_c[n] *= 0.0
+                # force_s_p_c[n] *= 0.0
+            # if printStuff:
+            #     print "Image %i:" % n
+            #     print self.GlobalIC.ImageICs[n]
+            #     print "(Int)  %i->%i % 8.4f % 8.4f" % (n-1, n, np.linalg.norm(force_s_Minus), np.linalg.norm(force_s_Minus-self.prevGrad[(n, n-1, n, 1)]))
+            #     print "Now :", " ".join(["% 8.4f" % i for i in force_s_Minus])
+            #     print "Prev:", " ".join(["% 8.4f" % i for i in self.prevGrad[(n, n-1, n, 1)]])
+            #     print "Diff:", " ".join(["% 8.4f" % i for i in force_s_Minus-self.prevGrad[(n, n-1, n, 1)]])
+            #     print "(Int)  %i->%i % 8.4f % 8.4f" % (n+1, n, np.linalg.norm(force_s_Plus), np.linalg.norm(force_s_Plus-self.prevGrad[(n, n+1, n, 1)]))
+            #     print "Now :", " ".join(["% 8.4f" % i for i in force_s_Plus])
+            #     print "Prev:", " ".join(["% 8.4f" % i for i in self.prevGrad[(n, n+1, n, 1)]])
+            #     print "Diff:", " ".join(["% 8.4f" % i for i in force_s_Plus-self.prevGrad[(n, n+1, n, 1)]])
+            #     print "(Cart) %i->%i % 8.4f % 8.4f" % (n-1, n, np.linalg.norm(fMinus_cart)*au2evang, np.linalg.norm(fMinus_cart-self.prevGrad[(n, n-1, n)])*au2evang)
+            #     print "Now :", " ".join(["% 8.4f" % i for i in fMinus_cart])
+            #     print "Prev:", " ".join(["% 8.4f" % i for i in self.prevGrad[(n, n-1, n)]])
+            #     print "Diff:", " ".join(["% 8.4f" % i for i in fMinus_cart-self.prevGrad[(n, n-1, n)]])
+            #     print "(Cart) %i->%i % 8.4f % 8.4f" % (n+1, n, np.linalg.norm(fPlus_cart)*au2evang, np.linalg.norm(fPlus_cart-self.prevGrad[(n, n+1, n)])*au2evang)
+            #     print "Now :", " ".join(["% 8.4f" % i for i in fPlus_cart])
+            #     print "Prev:", " ".join(["% 8.4f" % i for i in self.prevGrad[(n, n+1, n)]])
+            #     print "Diff:", " ".join(["% 8.4f" % i for i in fPlus_cart-self.prevGrad[(n, n+1, n)]])
+            #     print "WilsonB (Now):"
+            #     print "\n".join([" ".join(["% 8.4f" % j for j in i]) for i in Bmat])
+            #     print "WilsonB (Prev):"
+            #     print "\n".join([" ".join(["% 8.4f" % j for j in i]) for i in self.prevB[n]])
+            #     print "WilsonB (Diff):"
+            #     print "\n".join([" ".join(["% 8.4f" % j for j in i]) for i in Bmat-self.prevB[n]])
+            # self.prevGrad[(n, n-1, n)] = fMinus_cart.copy()
+            # self.prevGrad[(n, n+1, n)] = fPlus_cart.copy()
+            # self.prevGrad[(n, n-1, n, 1)] = force_s_Minus
+            # self.prevGrad[(n, n+1, n, 1)] = force_s_Plus
+            # self.prevB[n] = Bmat.copy()
+
+            if n > 1:
+                force_s_c[n-1] -= self.GlobalIC.applyCartesianGrad(xyz, force_s_Minus, n-1, n)
+                # if printStuff:
+                #     print "(Cart) %i->%i % 8.4f % 8.4f" % (n, n-1, np.linalg.norm(self.GlobalIC.applyCartesianGrad(xyz, force_s_Minus, n-1, n))*au2evang, np.linalg.norm(self.GlobalIC.applyCartesianGrad(xyz, force_s_Minus, n-1, n)-self.prevGrad[(n, n, n-1)])*au2evang)
+                # self.prevGrad[(n, n, n-1)] = self.GlobalIC.applyCartesianGrad(xyz, force_s_Minus, n-1, n)
+            if n < len(self)-2:
+                force_s_c[n+1] -= self.GlobalIC.applyCartesianGrad(xyz, force_s_Plus, n+1, n)
+                # if printStuff:
+                #     print "(Cart) %i->%i % 8.4f % 8.4f" % (n, n+1, np.linalg.norm(self.GlobalIC.applyCartesianGrad(xyz, force_s_Plus, n+1, n))*au2evang, np.linalg.norm(self.GlobalIC.applyCartesianGrad(xyz, force_s_Plus, n+1, n)-self.prevGrad[(n, n, n+1)])*au2evang)
+                # self.prevGrad[(n, n, n+1)] = self.GlobalIC.applyCartesianGrad(xyz, force_s_Plus, n+1, n)
+
+        for n in range(1, len(self)-1):
+            if self.climbSet and n in self.climbers:
+                # The climbing image feels no spring forces at all,
+                # Note: We make the choice to change both the plain and the 
+                # projected spring force.
+                force_s_c[n] *= 0.0
+                force_s_p_c[n] *= 0.0
+
+        # print "ComputeProjectedGrad_IC: force_s_c (eV/Ang)    :", # % avgg
+        # print ' '.join(["%7.4f" % (rms_gradient(force_s_c[n])*au2evang) for n in range(len(force_s_c))])
+        xyz = self.get_cartesian_all(endpts=True).reshape(len(self),-1)
+        grad_v_c = np.array([self.Structures[n].grad_cartesian for n in range(len(self))])
+        grad_v_i = self.GlobalIC.calcGrad(xyz, grad_v_c.flatten())
+        grad_s_i = self.GlobalIC.calcGrad(xyz, -force_s_c.flatten())
+        grad_v_p_i = self.GlobalIC.calcGrad(xyz, grad_v_p_c.flatten())
+        grad_s_p_i = self.GlobalIC.calcGrad(xyz, -force_s_p_c.flatten())
+
+        self.set_global_grad(grad_v_i, "potential", "plain")
+        self.set_global_grad(grad_v_p_i, "potential", "projected")
+        self.set_global_grad(grad_s_i, "spring", "plain")
+        self.set_global_grad(grad_s_p_i, "spring", "projected")
+
     def ComputeGuessHessian(self, blank=False):
         # self.ComputeSpringHessian()
         self.spring_hessian_plain = np.zeros((self.nvars, self.nvars), dtype=float)
@@ -1348,6 +1465,22 @@ class ElasticBand(Chain):
 
     def SaveToDisk(self, fout="chain.xyz"):
         super(ElasticBand, self).SaveToDisk(fout)
+
+        if self.coordtype is 'cart':
+            Mout = deepcopy(self.Structures[0].M)
+            # LPW: Print out spring gradients for debugging
+            spForces = [-au2evang*self.get_grad(i, "spring", "working").reshape(-1,3) for i in range(1, len(self)-1)]
+            spForces = [spForces[0]*0.0] + spForces + [spForces[0]*0.0]
+            # print [s.shape for s in spForces]
+            Mout.xyzs = spForces
+            Mout.comms = ["Spring Force for Image %i/%i" % (i+1, len(self)) for i in range(len(self))]
+            Mout.write(fout.replace('chain','spForces'))
+            # Do the same thing for potential gradients
+            vForces = [-au2evang*self.get_grad(i, "potential", "working").reshape(-1,3) for i in range(1, len(self)-1)]
+            vForces = [vForces[0]*0.0] + vForces + [vForces[0]*0.0]
+            Mout.xyzs = vForces
+            Mout.comms = ["Potential Force for Image %i/%i" % (i+1, len(self)) for i in range(len(self))]
+            Mout.write(fout.replace('chain','vForces'))
 
     def OptimizeEndpoints(self, gtol=None):
         self.Structures[0].OptimizeGeometry(gtol)
