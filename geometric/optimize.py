@@ -128,8 +128,9 @@ class Optimizer(object):
         self.IRC_opt = False
         self.IRC_substep_success = True
         self.IRC_total_disp = 0.0
-        self.IC_changed = False
         self.prevQ = 1.0
+        self.irc_rb = 5
+        self.H_rb = []
         if print_info:
             self.print_info()
         
@@ -207,10 +208,10 @@ class Optimizer(object):
         if isinstance(self.IC, DelocalizedInternalCoordinates):
             self.IC.build_dlc(self.X)
         # With redefined internal coordinates, the Hessian needs to be rebuilt
-        #if self.params.irc:
-        #    self.H = self.IC.calcHess(self.X, self.gradx, self.Hx)
-        #else:
-        self.rebuild_hessian()
+        if self.params.irc:
+            self.H = self.IC.calcHess(self.X, self.gradx, self.Hx)
+        else:
+            self.rebuild_hessian()
         # Current values of internal coordinates and IC gradient are recalculated
         self.Y = self.IC.calculate(self.X)
         self.G = self.IC.calcGrad(self.X, self.gradx)
@@ -241,16 +242,17 @@ class Optimizer(object):
                 logger.info(self.IC.repr_diff(IC1)+'\n')
         # Set current ICs to the new one
         if changed or recover or cartesian:
-            #if self.params.irc:
-            #    self.Hx = self.IC.calcHessCart(self.X, self.Y, self.H)
-                #original_IC = deepcopy(self.IC.Prims.Internals)
-                #logger.info("Adding\n")
-                #for newPrim in IC1.Prims.Internals:
-                #    if newPrim not in original_IC:
-                #        logger.info(newPrim.__repr__() + '\n')
-                #        self.IC.Prims.Internals.append(newPrim)
-                #self.IC.Prims.reorderPrimitives()
-            #else:
+            if self.params.irc:
+                logger.info("IC change detected, rolling back %i iterations\n" %self.irc_rb)
+                self.Iteration -= self.irc_rb 
+                self.progress = self.progress[:-self.irc_rb]   
+                self.X = self.progress.xyzs[-1] / bohr2ang
+                self.Y = self.IC.calculate(self.X)
+                self.X = self.X.flatten()
+                self.E = self.progress.qm_energies[-1]
+                self.gradx = self.progress.qm_grads[-1]
+                self.Hx = self.IC.calcHessCart(self.X, self.Y, self.H_rb[0])
+                self.H_rb = []
             self.IC = IC1
             self.refreshCoordinates()
             return True
@@ -276,10 +278,7 @@ class Optimizer(object):
         return rms_gradient, max_gradient
 
     def rebuild_hessian(self):
-        if self.params.irc:
-            self.H0 = self.IC.calcHess(self.coords.copy(), self.Gx_init, self.Hx0)
-        else:
-            self.H0 = self.IC.guess_hessian(self.coords)
+        self.H0 = self.IC.guess_hessian(self.coords)
         self.H = update_hessian(self.IC, self.H0, self.X_hist, self.Gx_hist, self.params, trust_limit=True, max_updates=100)
 
     def frequency_analysis(self, hessian, suffix, afterOpt):
@@ -586,7 +585,7 @@ class Optimizer(object):
                 const = self.find_lambda(min_lambda, Heig, Hvecs, g_M, p_M)
                 cnorm = self.get_cartesian_norm(dy) # Angstrom
                 if ((const > 1 or min_lambda > Heig[0]) and irc_sub_iteration > 100) :
-                    if (mwdx > self.IRC_stepsize*1.5 or mwdx_1 > self.IRC_stepsize*1.5) and cnorm > self.trust and self.IRC_substep_success:
+                    if (mwdx > self.IRC_stepsize*1.5 or np.linalg.norm(mwdx_1) > self.IRC_stepsize*1.5) and cnorm > self.trust and self.IRC_substep_success:
                         logger.info("IRC second sub-step failed. Rejecting the step.\n")
                         self.IRC_substep_success = False
                     else:
@@ -773,7 +772,6 @@ class Optimizer(object):
             self.IRC_opt = False
             self.trustprint = "="
             #self.params.tmax = self.trust
-            self.IC_changed = False
             self.IRC_total_disp = 0.0
             self.prevQ = 1.0
             #self.calcEnergyForce()
@@ -801,7 +799,7 @@ class Optimizer(object):
                     logger.info("Bad quality IRC step detected near the starting point. Decreasing the step-size to the minimum.\n")
                     self.trust = params.tmin
                 IC_check = True
-                
+            
             if not self.IRC_substep_success:
                 step_state = StepState.Reject
                 IC_check = True
@@ -902,11 +900,9 @@ class Optimizer(object):
                 #else:
                 #    self.X_hist = self.X_hist[:-1]
                 #    self.Gx_hist = self.Gx_hist[:-1]
-                if IC_check:
+                if IC_check and len(self.H_rb) >= self.irc_rb:
                     logger.info("Checking coordinate system\n")
-                    IC_changed = self.checkCoordinateSystem(cartesian=isinstance(self.IC, CartesianCoordinates))
-                    if IC_changed and not self.IC_changed:
-                        self.IC_changed = IC_changed
+                    self.checkCoordinateSystem(cartesian=isinstance(self.IC, CartesianCoordinates))
                 return
             if hasattr(self, 'X_rj') and np.allclose(self.X_rj, self.X, atol=1e-6):
                 logger.info("\x1b[93mA previously rejected step was repeated; accepting to avoid infinite loop\x1b[0m\n")
@@ -968,6 +964,20 @@ class Optimizer(object):
 
         ### Update the Hessian ###
         if UpdateHessian:
+            #if params.irc and self.Iteration == 0:
+            #    self.H_rb = self.H.copy()
+            #    self.X_rb = self.X.copy()
+            #    self.Y_rb = self.Y.copy()
+            #    self.gradx_rb = self.gradx.copy()
+            #    self.IRC_total_disp_rb = self.IRC_total_disp.copy()
+            #    self.progress_rb = deepcopy(self.progress)
+            #    self.E_rb = self.E
+            #    self.Iteration_rb = self.Iteration.copy()
+            if params.irc:
+                if len(self.H_rb) == self.irc_rb:
+                    self.H_rb.pop(0)
+                self.H_rb.append(self.H)
+                assert len(self.H_rb) <= self.irc_rb
             self.UpdateHessian()
         if hasattr(self, 'Hx'):
             self.H = self.IC.calcHess(self.X, self.gradx, self.Hx)
