@@ -919,7 +919,8 @@ class Interpolator(object):
 
             # Fail if the endpt_err is greater than the threshold
             if endpt_err > err_thre:
-                M.align()
+                if self.align_system:
+                    M.align()
                 return M, 1, dq_ratio, endpt_err
             # Check for clashes
             clash_pairs, clash_new = self.detect_clash_trajectory(coord_segment, clash_known=clash_pairs, altdists=self.min_enddists, verbose=False)
@@ -1207,14 +1208,16 @@ class Interpolator(object):
                 if include_alignment:
                     M_append = M_reac[:-1] + M + M_prod[1:]
                     if len(M_append) != len(M):
-                        M_append.align()
+                        if self.align_system: 
+                            M.align()
                         M = EqualSpacing(M_append, frames=len(M), RMSD=False, spline=True)
                 else:
                     if len(M_reac) > 1:
                         M = M_reac[0] + M
                     if len(M_prod) > 1:
                         M = M + M_prod[-1]
-                    M.align()
+                    if self.align_system: 
+                        M.align()
                         
                 M.write("interpolated_splice.xyz")
                 if self.extrapolate:
@@ -1225,7 +1228,8 @@ class Interpolator(object):
                         M_with_extra = M_extra[0] + M_with_extra
                     if self.extrapolate[1] > 0:
                         M_with_extra = M_with_extra + M_extra[1]
-                    M_with_extra.align(refidx=refidx)
+                    if self.align_system:
+                        M_with_extra.align(refidx=refidx)
                         
                     print(">> Path with (%i head, %i tail) extrapolated frames saved to interpolated_splice_extra.xyz" % (self.extrapolate[0], self.extrapolate[1]))
                     M_with_extra.write("interpolated_splice_extra.xyz")
