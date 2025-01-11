@@ -42,8 +42,6 @@ def test_psi4_hcn_neb_optimize_1(localizer, molecule_engine_hcn):
         M, engine=engine, tmpdir=tempfile.mkdtemp(), params=params, plain=0
     )
 
-    assert chain.coordtype == "cart"
-
     final_chain, optCycle = geometric.neb.OptimizeChain(chain, engine, params)
 
     assert optCycle <= 10
@@ -54,19 +52,19 @@ def test_psi4_hcn_neb_optimize_1(localizer, molecule_engine_hcn):
 @addons.using_psi4
 def test_psi4_hcn_neb_optimize_2(localizer, molecule_engine_hcn):
     """
-    Optimize a HCN chain with alignment
+    Optimize a HCN chain with alignment and TRIC
     """
     M, engine = molecule_engine_hcn('psi4', 11)
 
     # maxg and avgg are increased here to make them converge faster after the alignment
-    params = geometric.params.NEBParams(**{"verbose": 1, "maxg": 3.0, "avgg": 2.0})
+    params = geometric.params.NEBParams(**{"verbose": 1, "maxg": 3.0, "avgg": 2.0, "coordsys": 'tric'})
     chain = geometric.neb.ElasticBand(
         M, engine=engine, tmpdir=tempfile.mkdtemp(), params=params, plain=0
     )
 
-    assert chain.coordtype == "cart"
-
     final_chain, optCycle = geometric.neb.OptimizeChain(chain, engine, params)
+
+    assert chain.coordsys == 'tric'
 
     assert optCycle <= 10
     assert final_chain.maxg < params.maxg
@@ -84,8 +82,6 @@ def test_tera_hcn_neb_optimize(localizer, molecule_engine_hcn):
     chain = geometric.neb.ElasticBand(
         M, engine=engine, tmpdir=tempfile.mkdtemp(), params=params, plain=0
     )
-
-    assert chain.coordtype == "cart"
 
     final_chain, optCycle = geometric.neb.OptimizeChain(chain, engine, params)
 
@@ -106,8 +102,6 @@ def test_qchem_hcn_neb_optimize(localizer, molecule_engine_hcn):
         M, engine=engine, tmpdir=tempfile.mkdtemp(), params=params, plain=0
     )
 
-    assert chain.coordtype == "cart"
-
     final_chain, optCycle = geometric.neb.OptimizeChain(chain, engine, params)
 
     assert optCycle <= 10
@@ -126,8 +120,6 @@ def test_qchem_hcn_neb_optimize(localizer, molecule_engine_hcn):
     chain = geometric.neb.ElasticBand(
         M, engine=engine, tmpdir=tempfile.mkdtemp(), params=params, plain=0
     )
-
-    assert chain.coordtype == "cart"
 
     final_chain, optCycle = geometric.neb.OptimizeChain(chain, engine, params)
 
@@ -149,8 +141,6 @@ def test_psi4_bigchem(localizer, molecule_engine_hcn):
         M, engine=engine, tmpdir=tempfile.mkdtemp(), params=params, plain=0
     )
 
-    assert chain.coordtype == "cart"
-
     final_chain, optCycle = geometric.neb.OptimizeChain(chain, engine, params)
 
     assert optCycle <= 10
@@ -171,8 +161,6 @@ def test_terachem_bigchem(localizer, molecule_engine_hcn):
         M, engine=engine, tmpdir=tempfile.mkdtemp(), params=params, plain=0
     )
 
-    assert chain.coordtype == "cart"
-
     final_chain, optCycle = geometric.neb.OptimizeChain(chain, engine, params)
 
     assert optCycle <= 10
@@ -192,8 +180,6 @@ def test_qchem_bigchem(localizer, molecule_engine_hcn):
     chain = geometric.neb.ElasticBand(
         M, engine=engine, tmpdir=tempfile.mkdtemp(), params=params, plain=0
     )
-
-    assert chain.coordtype == "cart"
 
     final_chain, optCycle = geometric.neb.OptimizeChain(chain, engine, params)
 

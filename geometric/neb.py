@@ -41,7 +41,7 @@ import numpy as np
 from copy import deepcopy
 from datetime import datetime
 from .info import print_logo, print_citation
-from .prepare import get_molecule_engine
+from .prepare import get_molecule_engine, parse_constraints
 from .optimize import Optimize
 from .params import OptParams, NEBParams, parse_neb_args
 from .step import get_delta_prime_trm, brent_wiki, trust_step, calc_drms_dmax
@@ -79,14 +79,18 @@ def rms_gradient(gradx):
     atomgrad = np.sqrt(np.sum((gradx.reshape(-1, 3)) ** 2, axis=1))
     return np.sqrt(np.mean(atomgrad**2))
 
-def CoordinateSystem(M, coordtype, chain=False, guessw=0.1):
+def CoordinateSystem(M, coordsys, cons=None, cvals=None, chain=False, guessw=0.1):
     """
     Parameters
     ----------
     M : Molecule object
         Contains all structures of the input chain
-    coordtype : string
+    coordsys : string
         Pass in 'cart', 'prim', 'dlc', 'hdlc', or 'tric'
+    cons : list
+        List of primitive internal coordinates corresponding to the constraints
+    cvals : list
+        List of lists of constraint values.
     chain : bool
         True will return a chain object
     guessw : float
@@ -100,7 +104,6 @@ def CoordinateSystem(M, coordtype, chain=False, guessw=0.1):
     # First item in tuple: The class to be initialized
     # Second item in tuple: Whether to connect nonbonded fragments
     # Third item in tuple: Whether to throw in all Cartesians (no effect if second item is True)
-    # Fourth item in tuple: Build a chain coordinate system
     CoordSysDict = {
         "cart": (CartesianCoordinates, False, False),
         "prim": (PrimitiveInternalCoordinates, True, False),
@@ -109,22 +112,21 @@ def CoordinateSystem(M, coordtype, chain=False, guessw=0.1):
         "tric": (DelocalizedInternalCoordinates, False, False),
         "tric-p": (PrimitiveInternalCoordinates, False, False),
     }  # Primitive TRIC, i.e. not delocalized
-    CoordClass, connect, addcart = CoordSysDict[coordtype]
-    if CoordClass is DelocalizedInternalCoordinates:
-        IC = CoordClass(M, build=True, connect=connect, addcart=addcart)
-    elif chain:
-        IC = ChainCoordinates(M, connect=connect, addcart=addcart, cartesian=(coordtype == "cart"),
-                               guessw=guessw)
+    CoordClass, connect, addcart = CoordSysDict[coordsys]
+
+    if chain:
+        IC = ChainCoordinates(M, CoordClass, connect=connect, addcart=addcart, constraints=cons, cvals=cvals, guessw=guessw)
     else:
-        IC = CoordClass(M, build=True, connect=connect, addcart=addcart, chain=False)
-    IC.coordtype = coordtype
+        IC = CoordClass(M, build=True, connect=connect, addcart=addcart, constraints=cons, cvals=cvals)
+
+    IC.coordsys = coordsys
     return IC
 
 
 class Structure(object):
     """Class representing a single structure in a chain."""
 
-    def __init__(self, molecule, engine, tmpdir, coordtype, coords=None):
+    def __init__(self, molecule, engine, tmpdir, coordsys, cons=None, CVals=None, coords=None):
         """
         Create a Structure object.
 
@@ -136,7 +138,7 @@ class Structure(object):
             Wrapper around quantum chemistry code (currently not a ForceBalance engine)
         tmpdir : str
             The folder in which to run calculations
-        coordtype : string, optional
+        coordsys : string, optional
             Choice of coordinate system (Either cart, prim, dlc, hdlc, or tric) ; defaults to Cartesian
         coords : np.ndarray, optional
             Flat array in a.u. containing coordinates (will overwrite what we have in molecule)
@@ -158,9 +160,9 @@ class Structure(object):
         # Temporary folder for running calculations
         self.tmpdir = tmpdir
         # The type of internal coordinate system.
-        self.coordtype = coordtype
+        self.coordsys = coordsys
         # The internal coordinate system.
-        IC = CoordinateSystem(self.M, self.coordtype)
+        IC = CoordinateSystem(self.M, self.coordsys, cons=cons, cvals=CVals)
         self.set_IC(IC)
         # The values of internal coordinates corresponding to the Cartesians
         self.CalcInternals()
@@ -201,7 +203,7 @@ class Structure(object):
 
     def set_IC(self, IC):
         self._IC = IC
-        self.coordtype = IC.coordtype
+        self.coordsys = IC.coordsys
         self.nICs = len(IC.Internals)
         self.CalcInternals()
 
@@ -259,13 +261,11 @@ class Structure(object):
             opt_params.Convergence_grms = gtol / au2evang
             opt_params.Convergence_gmax = 1.5 * gtol / au2evang
 
-        self.IC = CoordinateSystem(self.M, "tric")
-
         optProg = Optimize(self.cartesians, self.M, self.IC, self.engine, self.tmpdir, opt_params)
 
         self.cartesians = np.array(optProg[-1].xyzs).flatten()
         self.M = optProg[-1]
-        self.IC = CoordinateSystem(self.M, self.coordtype)
+        self.IC = CoordinateSystem(self.M, self.coordsys)
         self.CalcInternals()
 
 
@@ -295,7 +295,8 @@ class Chain(object):
         self.engine = engine
         self.tmpdir = tmpdir
         # HP 5/2/2023: coordtype is set to 'cart' here.
-        self.coordtype='cart'
+        #self.coordtype='cart'
+        self.coordsys=params.coordsys
 
         # coords is a 2D array with dimensions (N_image, N_atomx3) in atomic units
         if coords is not None:
@@ -309,13 +310,13 @@ class Chain(object):
         self.na = self.M.na
         # The Structures are what store the individual Cartesian coordinates for each frame.
         self.Structures = [Structure(self.M[i], engine, os.path.join(self.tmpdir, "struct_%%0%ii" % len(str(len(self))) % i),
-                self.coordtype) for i in range(len(self))]
+                self.coordsys, self.params.cons, self.params.CVals) for i in range(len(self))]
         # The total number of variables being optimized
         # self.nvars = sum([self.Structures[n].nICs for n in range(1, len(self)-1)])
         # Locked images (those having met the convergence criteria) are not updated
         self.locks = [True] + [False for n in range(1, len(self) - 1)] + [True]
         self.haveCalcs = False
-        self.GlobalIC = CoordinateSystem(self.M, self.coordtype, chain=True, guessw=self.params.guessw)
+        self.GlobalIC = CoordinateSystem(self.M, self.coordsys, chain=True, guessw=self.params.guessw)
         self.nvars = len(self.GlobalIC.Internals)
         # raw_input()
 
@@ -554,7 +555,7 @@ class Chain(object):
     def align(self):
         self.M.align()
         self.Structures = [Structure(self.M[i], self.engine, os.path.join(self.tmpdir, "struct_%%0%ii" %  len(str(len(self))) % i),
-                          self.coordtype) for i in range(len(self))]
+                          self.coordsys) for i in range(len(self))]
         self.clearCalcs()
 
     def respace(self, thresh):
@@ -597,7 +598,7 @@ class Chain(object):
                     os.path.join(
                         self.tmpdir, "struct_%%0%ii" % len(str(len(self))) % (s[0] + i)
                     ),
-                    self.coordtype,
+                    self.coordsys,
                 )
             logger.info("Respaced images %s \n" % (list(range(s[0], s[1] + 1))))
         if len(merge_segments) > 0:
@@ -641,7 +642,7 @@ class Chain(object):
                     Mtmp = deepcopy(self.Structures[0].M)
                     Mtmp.xyzs = [xyzs[i]]
                     self.Structures[i] = Structure(Mtmp, self.engine, os.path.join(self.tmpdir, "struct_%%0%ii" % len(str(len(self))) % i
-                        ), self.coordtype)
+                        ), self.coordsys)
                 logger.info(
                     "Evening out spacings: Deleted image %2i and added a new image between %2i and %2i \n"
                     % (deli, insi, insj)
@@ -1108,11 +1109,11 @@ class ElasticBand(Chain):
             self.PotBandEnergy += self.Structures[n].energy
         self.TotBandEnergy = self.SprBandEnergy + self.PotBandEnergy
 
-    def ComputeProjectedGrad(self):
-        # HP 5/3/2023: ComputeProjectedGrad_IC was deleted
-        self.ComputeProjectedGrad_CC()
+    #def ComputeProjectedGrad(self):
+    #    # HP 5/3/2023: ComputeProjectedGrad_IC was deleted
+    #    self.ComputeProjectedGrad_CC()
 
-    def ComputeProjectedGrad_CC(self):
+    def ComputeProjectedGrad(self):
         xyz = self.get_cartesian_all(endpts=True).reshape(len(self), -1)
         grad_v_c = np.array(
             [self.Structures[n].grad_cartesian for n in range(len(self))]
@@ -1230,7 +1231,7 @@ class ElasticBand(Chain):
                 self.M[i],
                 self.engine,
                 os.path.join(self.tmpdir, "struct_%%0%ii" % len(str(len(self))) % i),
-                self.coordtype,
+                self.coordsys,
             )
             for i in range(len(self))
         ]
@@ -1441,7 +1442,8 @@ def qualitycheck(old_chain, new_chain, trust, Quality, ThreLQ, ThreRJ, ThreHQ, Y
         trustprint = "="
     # LP-Experiment: Trust radius should be smaller than half of chain spacing
     # Otherwise kinks can (and do) appear!
-    trust = min(trust, min(new_chain.calc_spacings()))
+    #trust = min(trust, min(new_chain.calc_spacings()))
+    trust = min(trust, max(new_chain.calc_spacings())/2)
 
     if Quality < -1 and rejectOk:
         # Reject the step and take a smaller one from the previous iteration
@@ -1754,6 +1756,18 @@ def main():
 
     if not os.path.exists(tmpdir):
         os.mkdir(tmpdir)
+
+    # Read in the constraints
+    constraints = args.get('constraints', None) # Constraint input file (optional)
+
+    if constraints is not None:
+        Cons, CVals = parse_constraints(M, open(constraints).read())
+    else:
+        Cons = None
+        CVals = None
+
+    params.cons = Cons
+    params.CVals = CVals
 
     # Make the initial chain
     chain = ElasticBand(M, engine=engine, tmpdir=tmpdir, params=params, plain=params.plain)
