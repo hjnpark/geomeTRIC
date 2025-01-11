@@ -252,6 +252,7 @@ class NEBParams(object):
         self.tmax = kwargs.get('tmax', 0.3)
         self.tmin = kwargs.get('tmin', 1.2e-3)
         self.skip = kwargs.get('skip', False)
+        self.coordsys = kwargs.get('coordsys', 'cart')
         self.bigchem = kwargs.get('bigchem', False)
 
         # Sanity checks on trust radius
@@ -470,6 +471,14 @@ def parse_neb_args(*args):
     grp_univ = parser.add_argument_group('universal', 'Relevant to every job')
     grp_univ.add_argument('input', type=str, help='REQUIRED positional argument: Quantum chemistry or MM input file for calculation\n ')
     grp_univ.add_argument('chain_coords', type=str, help='REQUIRED positional argument: Coordinate file containing multiple frames for NEB\n ')
+    grp_univ.add_argument('constraints', type=str, nargs='?', help='OPTIONAL positional argument: File containing constraint specifications and/or additional options\n ')
+    grp_univ.add_argument('--coordsys', type=str, help='Coordinate system:\n'
+                          '"tric" for Translation-Rotation Internal Coordinates (default)\n'
+                          '"cart" = Cartesian coordinate system\n'
+                          '"prim" = Primitive (a.k.a redundant internal coordinates)\n '
+                          '"dlc" = Delocalized Internal Coordinates,\n'
+                          '"hdlc" = Hybrid Delocalized Internal Coordinates\n'
+                          '"tric-p" for primitive Translation-Rotation Internal Coordinates (no delocalization)\n ')
     # TeraChem as a default option is only for the command line interface.
     grp_univ.add_argument('--engine', type=str, help='Specify engine for computing energies and gradients.\n'
                           '"tera" = TeraChem (default)         "qchem" = Q-Chem\n'
