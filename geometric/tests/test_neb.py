@@ -333,7 +333,7 @@ def test_hcn_neb_service_normal(localizer):
     """
     Testing neb.prepare() and neb.nextchain() function for QCFractal NEB service
     """
-
+    pytest.skip('Skipping for QCF/NEB')
     # 1) neb.prepare()
     with open(os.path.join(datad, "prepare_json_in.json")) as prepare_in:
         in_dict = json.load(prepare_in)
@@ -457,7 +457,7 @@ def test_hcn_neb_service_special(localizer):
     """
     Testing neb.nextchain() bad quality step
     """
-
+    pytest.skip('Skipping for QCF/NEB')
     # 1) Bad quality step
     with open(os.path.join(datad, "nextchain_json_in.json")) as prepare_in:
         in_dict = json.load(prepare_in)

@@ -3853,16 +3853,22 @@ class ChainCoordinates(PrimitiveInternalCoordinates):
             if coordcls.__name__ == 'CartesianCoordinates':
                 self.ImageICs.append(coordcls(molecule[i], **kwargs))
             else:
-                self.ImageICs.append(PrimitiveInternalCoordinates(molecule, build=True, connect=connect, addcart=addcart, constraints=constraints, cvals=cvals, **kwargs))
-
+                self.ImageICs.append(coordcls(molecule, build=True, connect=connect, addcart=addcart, constraints=constraints, cvals=cvals))
         self.ImageICs.append(EmptyCoordinates(molecule[-1], **kwargs))
+
+
         for i, imageIC in self.ICIter():
-            for ic in imageIC.Internals:
-                self.Internals.append(ImagePrim(ic, self.na, i))
-        guessw = kwargs.get('guessw', 0.1)
-        for i, imageIC in self.ICIter():
-            self.Internals.append(RMSDisplacement(imageIC, self.na, i-1, i, head=molecule.xyzs[0]*ang2bohr, tail=molecule.xyzs[-1]*ang2bohr, w=guessw))
-        self.Internals.append(RMSDisplacement(imageIC, self.na, i+1, i, head=molecule.xyzs[0]*ang2bohr, tail=molecule.xyzs[-1]*ang2bohr, w=guessw))
+            if coordcls.__name__ == 'DelocalizedInternalCoordinates':
+                for ic in imageIC.Prims.Internals:
+                    self.Internals.append(ImagePrim(ic, self.na, i))
+            else:
+                for ic in imageIC.Internals:
+                    self.Internals.append(ImagePrim(ic, self.na, i))
+
+        #guessw = kwargs.get('guessw', 0.1)
+        #for i, imageIC in self.ICIter():
+        #    self.Internals.append(RMSDisplacement(imageIC, self.na, i-1, i, head=molecule.xyzs[0]*ang2bohr, tail=molecule.xyzs[-1]*ang2bohr, w=guessw))
+        #self.Internals.append(RMSDisplacement(imageIC, self.na, i+1, i, head=molecule.xyzs[0]*ang2bohr, tail=molecule.xyzs[-1]*ang2bohr, w=guessw))
 
     def __repr__(self):
         lines = ["Internal coordinate system (atoms numbered from 1):"]

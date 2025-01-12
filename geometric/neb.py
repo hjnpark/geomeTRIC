@@ -289,6 +289,9 @@ class Chain(object):
             Array in a.u. containing coordinates (will overwrite what we have in molecule)
             Pass either an array with shape (len(M), 3*M.na), or a flat array with the same number of elements.
         """
+        if not hasattr(params, 'cons'):
+            params.cons=None
+            params.CVals=None
         self.params = params
         # LPW: This copy operation is checked and deemed necessary
         self.M = deepcopy(molecule)
@@ -429,7 +432,7 @@ class Chain(object):
             plain elastic band energy, used to calculate
             expected increase / decrease of the energy.
         """
-        X = self.get_cartesian_all(endpts=True)
+        #X = self.get_cartesian_all(endpts=True)
         Y = self.get_internal_all()
         G = self.get_global_grad("total", "working")
         H = HW.copy()
@@ -458,13 +461,13 @@ class Chain(object):
             return
 
         if Eig[0] < 0.0:
-            dy, expect, _ = get_delta_prime_trm(0.0, X, G, np.eye(len(G)), None, False)
+            dy, expect, _ = get_delta_prime_trm(0.0, Y, G, np.eye(len(G)), None, False)
             logger.info(
                 "\x1b[95mTaking steepest descent rather than Newton-Raphson step\x1b[0m \n"
             )
             ForceRebuild = True
         else:
-            dy, expect, _ = get_delta_prime_trm(v0, X, G, H, None, False)
+            dy, expect, _ = get_delta_prime_trm(v0, Y, G, H, None, False)
             ForceRebuild = False
         # Internal coordinate step size
         inorm = np.linalg.norm(dy)
@@ -512,7 +515,7 @@ class Chain(object):
                         "\x1b[93mBrent algorithm requires %i evaluations\x1b[0m \n"
                         % froot.counter
                     )
-            dy, expect = trust_step(iopt, v0, X, G, H, None, False, self.params.verbose)
+            dy, expect = trust_step(iopt, v0, Y, G, H, None, False, self.params.verbose)
         # Expected energy change should be calculated from PlainGrad
         GP = self.get_global_grad("total", "plain")
         expect = flat(0.5 * np.linalg.multi_dot([row(dy), HP, col(dy)]))[0] + np.dot(
@@ -1285,7 +1288,7 @@ class Froot(object):
         """
         chain = self.chain
         v0 = self.v0
-        X = chain.get_cartesian_all()
+        Y = chain.get_cartesian_all()
         G = chain.get_global_grad("total", "working")
         H = self.H
         trust = self.trust
@@ -1299,7 +1302,7 @@ class Froot(object):
             else:
                 # These two lines are different from Froot in optimize.py
                 dy, expect = trust_step(
-                    trial, v0, X, G, H, None, False, self.params.verbose
+                    trial, v0, Y, G, H, None, False, self.params.verbose
                 )
                 cnorm = chain.getCartesianNorm(dy, self.params.verbose)
                 # Early "convergence"; this signals whether we have found a valid step that is
