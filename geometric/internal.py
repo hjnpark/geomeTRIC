@@ -3840,8 +3840,8 @@ class ChainCoordinates(PrimitiveInternalCoordinates):
         self.nim = len(molecule)
         self.na = molecule.na
         self.Internals = []
-        self.cPrims = []
-        self.cVals = []
+        #self.cPrims = []
+        #self.cVals = []
 
         if coordcls.__name__ == 'CartesianCoordinates' and constraints is not None:
             raise RuntimeError('Do not use constraints with Cartesian coordinates')
@@ -3856,7 +3856,6 @@ class ChainCoordinates(PrimitiveInternalCoordinates):
                 self.ImageICs.append(coordcls(molecule, build=True, connect=connect, addcart=addcart, constraints=constraints, cvals=cvals))
         self.ImageICs.append(EmptyCoordinates(molecule[-1], **kwargs))
 
-
         for i, imageIC in self.ICIter():
             if coordcls.__name__ == 'DelocalizedInternalCoordinates':
                 for ic in imageIC.Prims.Internals:
@@ -3865,10 +3864,11 @@ class ChainCoordinates(PrimitiveInternalCoordinates):
                 for ic in imageIC.Internals:
                     self.Internals.append(ImagePrim(ic, self.na, i))
 
-        #guessw = kwargs.get('guessw', 0.1)
-        #for i, imageIC in self.ICIter():
-        #    self.Internals.append(RMSDisplacement(imageIC, self.na, i-1, i, head=molecule.xyzs[0]*ang2bohr, tail=molecule.xyzs[-1]*ang2bohr, w=guessw))
-        #self.Internals.append(RMSDisplacement(imageIC, self.na, i+1, i, head=molecule.xyzs[0]*ang2bohr, tail=molecule.xyzs[-1]*ang2bohr, w=guessw))
+        if coordcls.__name__ == 'CartesianCoordinates':
+            guessw = kwargs.get('guessw', 0.1)
+            for i, imageIC in self.ICIter():
+                self.Internals.append(RMSDisplacement(imageIC, self.na, i-1, i, head=molecule.xyzs[0]*ang2bohr, tail=molecule.xyzs[-1]*ang2bohr, w=guessw))
+            self.Internals.append(RMSDisplacement(imageIC, self.na, i+1, i, head=molecule.xyzs[0]*ang2bohr, tail=molecule.xyzs[-1]*ang2bohr, w=guessw))
 
     def __repr__(self):
         lines = ["Internal coordinate system (atoms numbered from 1):"]
@@ -3938,3 +3938,25 @@ class ChainCoordinates(PrimitiveInternalCoordinates):
             H[i,i] = k
             curr += 1
         return H
+
+    def newCartesian_withConstraint(self, xyz, dQ, thre=0.1, verbose=0):
+        xyz2 = self.newCartesian(xyz, dQ, verbose)
+        xyz2 = xyz2.reshape(-1, 3 * self.na)
+        for i, (im_xyz, IC) in enumerate(zip(xyz2, self.ImageICs)):
+            if i > 0 and i < (len(self.ImageICs)-1):
+                constraintSmall = len(IC.Prims.cPrims) > 0
+                cDiff = IC.calcConstraintDiff(xyz)
+                for ic, c in enumerate(IC.Prims.cPrims):
+                    diff = cDiff[ic]
+                    if np.abs(diff) > thre:
+                        constraintSmall = False
+                if constraintSmall:
+                    xyz2[i] = IC.applyConstraints(im_xyz)
+                    if not IC.enforced:
+                        logger.info("<<< Enforcing constraint satisfaction >>>\n")
+                    IC.enforced = True
+                else:
+                    IC.enforced = False
+        return xyz2.flatten()
+
+
