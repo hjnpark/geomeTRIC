@@ -319,7 +319,7 @@ class Chain(object):
         # Locked images (those having met the convergence criteria) are not updated
         self.locks = [True] + [False for n in range(1, len(self) - 1)] + [True]
         self.haveCalcs = False
-        self.GlobalIC = CoordinateSystem(self.M, self.coordsys, chain=True, guessw=self.params.guessw)
+        self.GlobalIC = CoordinateSystem(self.M, self.coordsys, cons=self.params.cons, cvals=self.params.CVals, chain=True, guessw=self.params.guessw)
         self.nvars = len(self.GlobalIC.Internals)
         # raw_input()
 
@@ -543,9 +543,14 @@ class Chain(object):
         currvar = 0
         # LPW 2017-04-08: Because we're creating a new Chain object that represents the step taken, this copy operation is deemed necessary
         Cnew = deepcopy(self)
-        Xnew = self.GlobalIC.newCartesian(
-            self.get_cartesian_all(endpts=True), dy, verbose=verbose
-        )
+        if self.params.cons is None:
+            Xnew = self.GlobalIC.newCartesian(
+                self.get_cartesian_all(endpts=True), dy, verbose=verbose
+            )
+        else:
+            Xnew = self.GlobalIC.newCartesian_withConstraint(self.get_cartesian_all(endpts=True), dy, verbose=verbose
+            )
+
         Xnew = Xnew.reshape(-1, 3 * self.na)
         for n in range(1, len(self) - 1):
             if not self.locks[n]:
@@ -1310,7 +1315,8 @@ class Froot(object):
                 # when the original trust radius fails, and we reduce the target step-length
                 # as a contingency
                 bork = chain.GlobalIC.bork
-                # bork = any([chain.Structures[n].IC.bork for n in range(1, len(self.chain)-1)])
+                #bork = any([chain.Structures[n].IC.bork for n in range(1, len(self.chain)-1)])
+                #bork = any([chain.GlobalIC.ImageICs[n].bork for n in range(1, len(self.chain)-1)])
                 self.from_above = self.above_flag and not bork and cnorm < trust
                 self.stores[trial] = cnorm
                 self.counter += 1
@@ -1445,8 +1451,8 @@ def qualitycheck(old_chain, new_chain, trust, Quality, ThreLQ, ThreRJ, ThreHQ, Y
         trustprint = "="
     # LP-Experiment: Trust radius should be smaller than half of chain spacing
     # Otherwise kinks can (and do) appear!
-    #trust = min(trust, min(new_chain.calc_spacings()))
-    trust = min(trust, max(new_chain.calc_spacings())/2)
+    trust = min(trust, min(new_chain.calc_spacings()))
+    #trust = min(trust, max(new_chain.calc_spacings())/2)
 
     if Quality < -1 and rejectOk:
         # Reject the step and take a smaller one from the previous iteration
