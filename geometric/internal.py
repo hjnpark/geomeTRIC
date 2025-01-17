@@ -3942,16 +3942,19 @@ class ChainCoordinates(PrimitiveInternalCoordinates):
     def newCartesian_withConstraint(self, xyz, dQ, thre=0.1, verbose=0):
         xyz2 = self.newCartesian(xyz, dQ, verbose)
         xyz2 = xyz2.reshape(-1, 3 * self.na)
-        for i, (im_xyz, IC) in enumerate(zip(xyz2, self.ImageICs)):
+        xyz = xyz.reshape(-1, 3 * self.na)
+        assert len(xyz2) == len(self.ImageICs)
+
+        for i, IC in enumerate(self.ImageICs):
             if i > 0 and i < (len(self.ImageICs)-1):
                 constraintSmall = len(IC.Prims.cPrims) > 0
-                cDiff = IC.calcConstraintDiff(xyz)
+                cDiff = IC.calcConstraintDiff(xyz[i])
                 for ic, c in enumerate(IC.Prims.cPrims):
                     diff = cDiff[ic]
                     if np.abs(diff) > thre:
                         constraintSmall = False
                 if constraintSmall:
-                    xyz2[i] = IC.applyConstraints(im_xyz)
+                    xyz2[i] = IC.applyConstraints(xyz2[i])
                     if not IC.enforced:
                         logger.info("<<< Enforcing constraint satisfaction >>>\n")
                     IC.enforced = True
