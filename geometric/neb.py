@@ -113,7 +113,7 @@ def CoordinateSystem(M, coordsys, cons=None, cvals=None, chain=False, guessw=0.1
         "tric-p": (PrimitiveInternalCoordinates, False, False),
     }  # Primitive TRIC, i.e. not delocalized
     CoordClass, connect, addcart = CoordSysDict[coordsys]
-
+    cvals = cvals[0] if cvals is not None else None
     if chain:
         IC = ChainCoordinates(M, CoordClass, connect=connect, addcart=addcart, constraints=cons, cvals=cvals, guessw=guessw)
     else:
