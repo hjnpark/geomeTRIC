@@ -1777,6 +1777,8 @@ def main():
 
     if constraints is not None:
         Cons, CVals = parse_constraints(M, open(constraints).read())
+        if params.coordsys == 'prim' or params.coordsys == 'cart':
+            raise RuntimeError("Constraints only work with delocalized internal coordinates")
     else:
         Cons = None
         CVals = None
