@@ -3843,10 +3843,6 @@ class ChainCoordinates(PrimitiveInternalCoordinates):
         #self.cPrims = []
         #self.cVals = []
 
-        if coordcls.__name__ == 'CartesianCoordinates' and constraints is not None:
-            raise RuntimeError('Do not use constraints with Cartesian coordinates')
-        #if 'rigid' in kwargs and kwargs['rigid'] is not None:
-        #    raise RuntimeError('Do not use rigid molecules with Cartesian coordinates')
         self.elem = molecule.elem
         self.ImageICs = [EmptyCoordinates(molecule[0], **kwargs)]
         for i in range(1, len(molecule)-1):
