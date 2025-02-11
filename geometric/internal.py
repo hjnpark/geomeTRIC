@@ -3833,7 +3833,7 @@ class ChainCoordinates(PrimitiveInternalCoordinates):
     between pairs of images as a coordinate (experimental).
 
     """
-    def __init__(self, molecule, coordcls, connect=False, addcart=False, constraints=None, cvals=None, **kwargs):
+    def __init__(self, molecule, coordcls, connect=False, addcart=False, constraints=None, cvals=None, conmethod=0, **kwargs):
         self.stored_wilsonB = OrderedDict()
         self.connect = connect
         self.addcart = addcart
@@ -3849,7 +3849,7 @@ class ChainCoordinates(PrimitiveInternalCoordinates):
             if coordcls.__name__ == 'CartesianCoordinates':
                 self.ImageICs.append(coordcls(molecule[i], **kwargs))
             else:
-                self.ImageICs.append(coordcls(molecule, build=True, connect=connect, addcart=addcart, constraints=constraints, cvals=cvals))
+                self.ImageICs.append(coordcls(molecule, build=True, connect=connect, addcart=addcart, constraints=constraints, cvals=cvals, conmethod=conmethod))
         self.ImageICs.append(EmptyCoordinates(molecule[-1], **kwargs))
 
         for i, imageIC in self.ICIter():

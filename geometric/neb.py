@@ -79,7 +79,7 @@ def rms_gradient(gradx):
     atomgrad = np.sqrt(np.sum((gradx.reshape(-1, 3)) ** 2, axis=1))
     return np.sqrt(np.mean(atomgrad**2))
 
-def CoordinateSystem(M, coordsys, cons=None, cvals=None, chain=False, guessw=0.1):
+def CoordinateSystem(M, coordsys, cons=None, cvals=None, chain=False, conmethod=0, guessw=0.1):
     """
     Parameters
     ----------
@@ -115,9 +115,9 @@ def CoordinateSystem(M, coordsys, cons=None, cvals=None, chain=False, guessw=0.1
     CoordClass, connect, addcart = CoordSysDict[coordsys]
     cvals = cvals[0] if cvals is not None else None
     if chain:
-        IC = ChainCoordinates(M, CoordClass, connect=connect, addcart=addcart, constraints=cons, cvals=cvals, guessw=guessw)
+        IC = ChainCoordinates(M, CoordClass, connect=connect, addcart=addcart, constraints=cons, cvals=cvals, conmethod=conmethod, guessw=guessw)
     else:
-        IC = CoordClass(M, build=True, connect=connect, addcart=addcart, constraints=cons, cvals=cvals)
+        IC = CoordClass(M, build=True, connect=connect, addcart=addcart, constraints=cons, cvals=cvals, conmethod=conmethod)
 
     IC.coordsys = coordsys
     return IC
@@ -126,7 +126,8 @@ def CoordinateSystem(M, coordsys, cons=None, cvals=None, chain=False, guessw=0.1
 class Structure(object):
     """Class representing a single structure in a chain."""
 
-    def __init__(self, molecule, engine, tmpdir, coordsys, cons=None, CVals=None, coords=None):
+    def __init__(self, molecule, engine, tmpdir, coordsys, cons=None, CVals=None, conmethod=0, coords=None):
+
         """
         Create a Structure object.
 
@@ -162,7 +163,7 @@ class Structure(object):
         # The type of internal coordinate system.
         self.coordsys = coordsys
         # The internal coordinate system.
-        IC = CoordinateSystem(self.M, self.coordsys, cons=cons, cvals=CVals)
+        IC = CoordinateSystem(self.M, self.coordsys, cons=cons, cvals=CVals, conmethod=conmethod)
         self.set_IC(IC)
         # The values of internal coordinates corresponding to the Cartesians
         self.CalcInternals()
@@ -313,7 +314,7 @@ class Chain(object):
         self.na = self.M.na
         # The Structures are what store the individual Cartesian coordinates for each frame.
         self.Structures = [Structure(self.M[i], engine, os.path.join(self.tmpdir, "struct_%%0%ii" % len(str(len(self))) % i),
-                self.coordsys, self.params.cons, self.params.CVals) for i in range(len(self))]
+                self.coordsys, self.params.cons, self.params.CVals, self.params.conmethod) for i in range(len(self))]
         # The total number of variables being optimized
         # self.nvars = sum([self.Structures[n].nICs for n in range(1, len(self)-1)])
         # Locked images (those having met the convergence criteria) are not updated
