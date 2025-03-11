@@ -253,6 +253,7 @@ class NEBParams(object):
         self.tmin = kwargs.get('tmin', 1.2e-3)
         self.skip = kwargs.get('skip', False)
         self.bigchem = kwargs.get('bigchem', False)
+        self.rmsdw = kwargs.get('rmsdw', 0.1)
 
         # Sanity checks on trust radius
         if self.tmax < self.tmin:
@@ -483,8 +484,7 @@ def parse_neb_args(*args):
     grp_nebparam.add_argument('--maxg', type=float, help='Converge when the maximum RMS-gradient of all images falls below this threshold (default 0.05 ev/Ang).\n ')
     grp_nebparam.add_argument('--avgg', type=float, help='Converge when the average RMS-gradient of all images falls below this threshold (default 0.025 ev/Ang).\n ')
     grp_nebparam.add_argument('--guessk', type=float, help='Guess the initial Hessian eigenvalue for displacements (default 0.05).\n ')
-    #HP 5/10/2024: guessw will be enabled once IC NEB is implemented.
-    #grp_nebparam.add_argument('--guessw', type=float, help='Guess weight for chain coordinates (default 0.1).\n ')
+    grp_nebparam.add_argument('--rmsdw', type=float, help='Weight for RMS distances between images to be added as internal coordinates (default 0.1).\n ')
     grp_nebparam.add_argument('--nebk', type=float, help='NEB spring constant in units of kcal/mol/Ang^2 (default 1.0).\n ')
     #HP 1/16/2025: neb_history is commented out because rebuilding the Hessian based on changes in IC isn't available.
     #grp_nebparam.add_argument('--neb_history', type=int, help='Chain history to keep in memory; note chains are very memory intensive, >1 GB each (default 1).\n ')

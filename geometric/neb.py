@@ -79,7 +79,7 @@ def rms_gradient(gradx):
     atomgrad = np.sqrt(np.sum((gradx.reshape(-1, 3)) ** 2, axis=1))
     return np.sqrt(np.mean(atomgrad**2))
 
-def CoordinateSystem(M, coordtype, chain=False, guessw=0.1):
+def CoordinateSystem(M, coordtype, chain=False, rmsdw=0.1):
     """
     Parameters
     ----------
@@ -89,8 +89,8 @@ def CoordinateSystem(M, coordtype, chain=False, guessw=0.1):
         Pass in 'cart', 'prim', 'dlc', 'hdlc', or 'tric'
     chain : bool
         True will return a chain object
-    guessw : float
-        Guessed weight value for the chain coordinate
+    rmsdw : float
+        Weight value for RMS distances
 
     Returns
     -------
@@ -114,7 +114,7 @@ def CoordinateSystem(M, coordtype, chain=False, guessw=0.1):
         IC = CoordClass(M, build=True, connect=connect, addcart=addcart)
     elif chain:
         IC = ChainCoordinates(M, connect=connect, addcart=addcart, cartesian=(coordtype == "cart"),
-                               guessw=guessw)
+                               rmsdw=rmsdw)
     else:
         IC = CoordClass(M, build=True, connect=connect, addcart=addcart, chain=False)
     IC.coordtype = coordtype
@@ -315,7 +315,7 @@ class Chain(object):
         # Locked images (those having met the convergence criteria) are not updated
         self.locks = [True] + [False for n in range(1, len(self) - 1)] + [True]
         self.haveCalcs = False
-        self.GlobalIC = CoordinateSystem(self.M, self.coordtype, chain=True, guessw=self.params.guessw)
+        self.GlobalIC = CoordinateSystem(self.M, self.coordtype, chain=True, rmsdw=self.params.rmsdw)
         self.nvars = len(self.GlobalIC.Internals)
         # raw_input()
 
