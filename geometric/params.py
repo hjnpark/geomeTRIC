@@ -254,6 +254,7 @@ class NEBParams(object):
         self.skip = kwargs.get('skip', False)
         self.coordsys = kwargs.get('coordsys', 'cart')
         self.bigchem = kwargs.get('bigchem', False)
+        self.conmethod = kwargs.get('conmethod', 0)
 
         # Sanity checks on trust radius
         if self.tmax < self.tmin:
@@ -495,8 +496,8 @@ def parse_neb_args(*args):
     #HP 5/10/2024: guessw will be enabled once IC NEB is implemented.
     #grp_nebparam.add_argument('--guessw', type=float, help='Guess weight for chain coordinates (default 0.1).\n ')
     grp_nebparam.add_argument('--nebk', type=float, help='NEB spring constant in units of kcal/mol/Ang^2 (default 1.0).\n ')
-    #HP 1/16/2025: neb_history is commented out because rebuilding the Hessian based on changes in IC isn't available.
-    #grp_nebparam.add_argument('--neb_history', type=int, help='Chain history to keep in memory; note chains are very memory intensive, >1 GB each (default 1).\n ')
+    grp_nebparam.add_argument('--neb_history', type=int, help='Chain history to keep in memory; note chains are very memory intensive, >1 GB each (default 1).\n ')
+    grp_nebparam.add_argument('--conmethod', type=int, help='Set to 1 to enable alternate constraint algorithm (default 0).\n ')
     grp_nebparam.add_argument('--neb_maxcyc', type=int, help='Maximum number of chain optimization cycles to perform (default 100).\n ')
     grp_nebparam.add_argument('--climb', type=float, help='Activate climbing image for max-energy points when max RMS-gradient falls below this threshold (default 0.5).\n ')
     grp_nebparam.add_argument('--ncimg', type=int, help='Number of climbing images to expect (default 1).\n ')
