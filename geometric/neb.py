@@ -1137,13 +1137,9 @@ class ElasticBand(Chain):
             ndrminus = np.linalg.norm(cc_curr - cc_prev)
             # Plain elastic band force
             k_new = self.k
-            #force_s = k_new * (cc_prev + cc_next - 2 * cc_curr)
-            #force_s_p = np.dot(force_s, tau) * tau
-            #force_s_ortho = force_s - force_s_para
-            #factor = 256 * (1.0 - straight[n]) ** 4
+            force_s = k_new * (cc_prev + cc_next - 2 * cc_curr)
             # Force from the spring in the tangent direction
-            force_s = k_new * (ndrplus - ndrminus)
-            force_s_p = force_s * tau
+            force_s_p = k_new * (ndrplus - ndrminus) * tau
             # Now get the perpendicular component of the force from the potential
             force_v_p = force_v - np.dot(force_v, tau) * tau
             if self.climbSet and n in self.climbers:
