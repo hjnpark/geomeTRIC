@@ -1808,6 +1808,8 @@ class Molpro(Engine): # pragma: no cover
                     # This works for MP2, CCSD and CCSD(T) total energy
                     elif len(fields) == 4 and fields[1] == 'total' and fields[2] == 'energy:':
                         energy = float(fields[-1])
+                elif len(fields) == 3 and fields[-2] == 'energy=':
+                    energy = float(fields[-1])
                 elif len(fields) > 4 and fields[-4] == 'GRADIENT' and fields[-3] == 'FOR' and fields[-2] == 'STATE':
                     # this works for most of the analytic gradients
                     found_grad = True
