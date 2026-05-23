@@ -313,7 +313,7 @@ class Optimizer(object):
         spcalc = self.engine.calc(self.X, self.dirname, read_data=(self.Iteration==0))
         # Copying initial sp calculation results to the backward directory for IRC
         if self.params.irc and self.Iteration==0 and self.IRC_direction == 'both' and self.IRC_info.get('direction') == 1:
-            shutil.copytree(self.dirname, self.dirname.replace('forward', 'backward'))
+            shutil.copytree(self.dirname, self.dirname.replace('forward', 'backward'), dirs_exist_ok=True)
         if self.params.subfrctor == 2 or (self.params.subfrctor == 1 and (self.lowq_tr_count >= self.lowq_tr_limit)):
             # Subtract out the overall translational and rotational components of the force
             netfrc_torque_mol = deepcopy(self.molecule)
