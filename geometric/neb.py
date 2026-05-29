@@ -1768,8 +1768,7 @@ def main():
     chain = ElasticBand(M, engine=engine, tmpdir=tmpdir, params=params, plain=params.plain)
     t0 = time.time()
     OptimizeChain(chain, engine, params)
-    if verbose > -1:
-        print_citation(logger)
+    print_citation(logger)
     logger.info("Time elapsed since start of OptimizeChain: %.3f seconds\n" % (time.time()-t0))
 
 if __name__ == "__main__":

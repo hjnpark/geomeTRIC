@@ -1383,8 +1383,7 @@ def run_optimizer(**kwargs):
         if len(CVals) > 1:
             Mfinal.write('scan-final.xyz')
             if params.qdata is not None: Mfinal.write('qdata-final.txt')
-    if verbose > -1:
-        print_citation(logger)
+    print_citation(logger)
     logger.info("Time elapsed since start of run_optimizer: %.3f seconds\n" % (time.time()-t0))
     if kwargs.get('wqport', 0):
         destroyWorkQueue()
