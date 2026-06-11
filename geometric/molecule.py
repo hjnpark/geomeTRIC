@@ -2351,7 +2351,7 @@ class Molecule(object):
         # self.molecules = list(nx.connected_component_subgraphs(G))
 
     def group_atoms_by_topology(self, bond_lim=10, verbose=False):
-        """
+        r"""
         Determine topologically equivalent atoms.
 
         bond_lim: Limit on the size of the fingerprint (default 10 bonds).

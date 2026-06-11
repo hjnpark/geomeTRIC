@@ -590,6 +590,7 @@ def parse_interpolate_args(*args):
     grp_output = parser.add_argument_group('output', 'Control the format and amount of the output')
     grp_output.add_argument('--prefix', type=str, help='Specify a prefix for log file and temporary directory.\n'
                             'Defaults to the input file path (incl. file name with extension removed).\n ')
+    grp_output.add_argument('--logINI', type=str, dest='logIni', help='.ini file for customizing logging output.\n ')
     grp_output.add_argument('--verbose', type=int, help='Set to positive for more verbose printout.\n'
                             '0 = Default print level.     1 = Basic info about optimization step.\n'
                             '2 = Include microiterations. 3 = Lots of printout from low-level functions.\n ')
@@ -603,7 +604,5 @@ def parse_interpolate_args(*args):
     for k, v in vars(parser.parse_args(*args)).items():
         if v is not None:
             args_dict[k] = v
-
-    print("LPW debug:", args_dict)
 
     return args_dict

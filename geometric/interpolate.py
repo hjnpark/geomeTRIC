@@ -1,39 +1,27 @@
 #!/usr/bin/env python
 
+import os
 import sys
+import time
 sys.setrecursionlimit(10000)
 from copy import deepcopy
+from datetime import datetime
 import json
+import logging.config
 import numpy as np
 import networkx as nx
 import scipy.special
+import geometric
 from geometric.params import InterpParams, parse_interpolate_args
 from geometric.molecule import *
 from geometric.internal import *
-from geometric.nifty import ang2bohr, logger, commadash
+from geometric.nifty import ang2bohr, logger, commadash, bak
 from geometric.step import calc_drms_dmax
+from geometric.config import config_dir
+from geometric.info import print_logo, print_citation
 
 # Pretend the "memory leaks likely.." has been printed already
 CacheWarning = True
-
-# Enable logging output from geomeTRIC packages
-from logging import *
-
-# Define two handlers that don't print newline characters at the end of each line
-class RawStreamHandler(StreamHandler):
-    """
-    Exactly like StreamHandler, except no newline character is printed at the end of each message.
-    This is done in order to ensure functions in molecule.py and nifty.py work consistently
-    across multiple packages.
-    """
-    def __init__(self, stream = sys.stdout):
-        super(RawStreamHandler, self).__init__(stream)
-        self.terminator = ""
-
-# Uncomment the below 3 lines to activate geomeTRIC module logging
-logger.setLevel(INFO)
-handler = RawStreamHandler()
-logger.addHandler(handler)
 
 def write_coord_segment(M, coord_segment, output_filename):
     M_copy = deepcopy(M)
@@ -140,7 +128,7 @@ def find_blocks(mtx, thre=1):
                 if j not in block_rights:
                     blocks.append((i, j))
                     block_rights.append(j)
-    print(blocks)
+    logger.info('%s\n' % (blocks,))
 
 def find_path(mtx, thre=1):
     # Converts the diagnostic map into a number of segments.
@@ -195,7 +183,7 @@ def find_path(mtx, thre=1):
     verbose = 0
     for size in range(n//2):
         if verbose >= 1:
-            print("Trying size %i (grid size %i)" % (size, 2*size+1))
+            logger.info("Trying size %i (grid size %i)" % (size, 2*size+1) + '\n')
         # Start from the left side..
         for ic0 in range(0, n):
             segments = []
@@ -206,15 +194,15 @@ def find_path(mtx, thre=1):
             ix_last = 0
             ic_ix_mode = 0
             if verbose >= 1:
-                print("From Left:   IC %i Size %i" % (ic, size))
+                logger.info("From Left:   IC %i Size %i" % (ic, size) + '\n')
             while True:
                 steps += 1
                 if ix == n-1: # or ic == n-1: 
                     if verbose >= 2:
-                        print("Reached the end! (%i,%i)" % (ic, ix))
+                        logger.info("Reached the end! (%i,%i)" % (ic, ix) + '\n')
                     segments.append((ix_last, n-1))
                     if verbose >= 1:
-                        print("Found segments: ", segments)
+                        logger.info("Found segments: %s" % (segments,) + '\n')
                     if size not in segments_by_size:
                         segments_by_size[size] = segments[:]
                     else:
@@ -227,7 +215,7 @@ def find_path(mtx, thre=1):
                     break
                 elif not valid(ic, ix, size) or steps > 2*n:
                     if verbose >= 2:
-                        print("Dead end at (%i,%i)" % (ic, ix))
+                        logger.info("Dead end at (%i,%i)" % (ic, ix) + '\n')
                     success = False
                     break
                 if ic_ix_mode == 0:
@@ -236,7 +224,7 @@ def find_path(mtx, thre=1):
                         ix -= 1
                         ic_ix_mode = 1
                         if verbose >= 2:
-                            print("Changed to ic-direction at (%i,%i)" % (ic, ix))
+                            logger.info("Changed to ic-direction at (%i,%i)" % (ic, ix) + '\n')
                         segments.append((ix_last, ix))
                         ix_last = ix + 1
                         ic += 1
@@ -246,7 +234,7 @@ def find_path(mtx, thre=1):
                         ic -= 1
                         ic_ix_mode = 0
                         if verbose >= 2:
-                            print("Changed to ix-direction at (%i,%i)" % (ic, ix))
+                            logger.info("Changed to ix-direction at (%i,%i)" % (ic, ix) + '\n')
                         ix += 1
         # Start from the right side.
         for ic0 in list(range(0, n))[::-1]:
@@ -258,16 +246,16 @@ def find_path(mtx, thre=1):
             ix_last = n-1
             ic_ix_mode = 0
             if verbose >= 1:
-                print("From Right:  IC %i Size %i" % (ic, size))
+                logger.info("From Right:  IC %i Size %i" % (ic, size) + '\n')
             while True:
                 steps += 1
                 if ix == 0: # or ic == 0: 
                     if verbose >= 2:
-                        print("Reached the end! (%i,%i)" % (ic, ix))
+                        logger.info("Reached the end! (%i,%i)" % (ic, ix) + '\n')
                     segments.append((0, ix_last))
                     segments = segments[::-1]
                     if verbose >= 1:
-                        print("Found segments: ", segments)
+                        logger.info("Found segments: %s" % (segments,) + '\n')
                     if size not in segments_by_size:
                         segments_by_size[size] = segments[:]
                     else:
@@ -280,7 +268,7 @@ def find_path(mtx, thre=1):
                     break
                 elif not valid(ic, ix, size) or steps > 2*n:
                     if verbose >= 2:
-                        print("Dead end at (%i,%i)" % (ic, ix))
+                        logger.info("Dead end at (%i,%i)" % (ic, ix) + '\n')
                     success = False
                     break
                 if ic_ix_mode == 0:
@@ -289,7 +277,7 @@ def find_path(mtx, thre=1):
                         ix += 1
                         ic_ix_mode = 1
                         if verbose >= 2:
-                            print("Changed to ic-direction at (%i,%i)" % (ic, ix))
+                            logger.info("Changed to ic-direction at (%i,%i)" % (ic, ix) + '\n')
                         segments.append((ix, ix_last))
                         ix_last = ix - 1
                         ic -= 1
@@ -299,10 +287,10 @@ def find_path(mtx, thre=1):
                         ic += 1
                         ic_ix_mode = 0
                         if verbose >= 2:
-                            print("Changed to ix-direction at (%i,%i)" % (ic, ix))
+                            logger.info("Changed to ix-direction at (%i,%i)" % (ic, ix) + '\n')
                         ix -= 1
         # if not success:
-        #     print("No segments found at this size")
+        #     logger.info("No segments found at this size" + '\n')
     if segments_by_size:
         min_pathsize = None
         largest_size = None
@@ -312,17 +300,17 @@ def find_path(mtx, thre=1):
                 min_pathsize = len(segments_by_size[key])
             if len(segments_by_size[key]) == min_pathsize:
                 largest_size = key
-        print("Chose these segments (car size %i):" % largest_size)
+        logger.info("Chose these segments (car size %i):" % largest_size + '\n')
         keep_segments = segments_by_size[largest_size]
-        print(keep_segments)
+        logger.info('%s\n' % (keep_segments,))
     else:
         raise RuntimeError("Path finding algorithm failed")
         # if success:
         #     if keep_segments and len(segments) > len(keep_segments):
-        #         print("Keeping the *previous* segments as there were fewer of them")
+        #         logger.info("Keeping the *previous* segments as there were fewer of them" + '\n')
         #         break
         #     else:
-        #         print("Obtained segments at grid size %i:" % (2*size+1), segments)
+        #         logger.info("Obtained segments at grid size %i:" % (2*size+1), segments + '\n')
         #         keep_segments = segments[:]
     return keep_segments
 
@@ -374,7 +362,7 @@ def splice_segment_endpoints(coord_segments, segment_endpoints, segments_spliced
         xyz_b_spliceEnd = coord_segments[b][splice_length-1]
         _, dmax1 = calc_drms_dmax(xyz_b_spliceStart, xyz_a_spliceStart, align=False)
         _, dmax2 = calc_drms_dmax(xyz_b_spliceEnd, xyz_a_spliceEnd, align=False)
-        if verbose: print("Segment %i-%i splice mismatches: %.3e %.3e" % (a, b, dmax1, dmax2))
+        if verbose: logger.info("Segment %i-%i splice mismatches: %.3e %.3e" % (a, b, dmax1, dmax2) + '\n')
         max_mismatch = max(max_mismatch, max(dmax1, dmax2))
         segment_endpoints[a][1] = damping*xyz_b_spliceEnd.copy() + (1.0-damping)*xyz_a_spliceEnd.copy()
         segment_endpoints[b][0] = damping*xyz_a_spliceStart.copy() + (1.0-damping)*xyz_b_spliceStart.copy()
@@ -481,21 +469,19 @@ def split_segments(segments_spliced, fail_segment, splice_length):
         # i = max(0, i-splice_length//2)
         # j = min(len(M)-1, j+splice_length//2)
         # segments_spliced.append((i, j))
-    print("Split segment %i - now the segments are:" % fail_segment)
-    print("Without splices:", segments_filled_new)
-    print("With splices:", segments_spliced_new)
+    logger.info("Split segment %i - now the segments are:" % fail_segment + '\n')
+    logger.info("Without splices: %s" % (segments_filled_new,) + '\n')
+    logger.info("With splices: %s" % (segments_spliced_new,) + '\n')
     return segments_filled_new, segments_spliced_new
 
 def print_map(mtx, title, colorscheme=0):
-    print(title)
+    logger.info(title + '\n')
     n = mtx.shape[0]
+    if n == 0:
+        return
+    logger.info(" x: " + "".join("%2i" % j for j in range(n)) + '\n')
     for i in range(n):
-        if i == 0:
-            print(" x: ", end='')
-            for j in range(n):
-                print("%2i" % j, end='')
-            print()
-        print("IC%2i " % i, end='')
+        row = "IC%2i " % i
         for j in range(n):
             value = mtx[i, j]
             if colorscheme == 0:
@@ -506,14 +492,11 @@ def print_map(mtx, title, colorscheme=0):
                 if value == 0: color = '\x1b[91m'
                 elif value == 1: color = '\x1b[92m'
             else: raise RuntimeError("Invalid color scheme")
-            print("%s%1i\x1b[0m " % (color, value), end='')
-        print("IC%2i " % i, end='')
-        print()
+            row += "%s%1i\x1b[0m " % (color, value)
+        row += "IC%2i " % i
+        logger.info(row + '\n')
         if i == n-1:
-            print(" x: ", end='')
-            for j in range(n):
-                print("%2i" % j, end='')
-            print()
+            logger.info(" x: " + "".join("%2i" % j for j in range(n)) + '\n')
 
 class Interpolator(object):
     def __init__(self, M_in, n_frames = 50, use_midframes = False, align_system=False, align_frags=False, fast=False, extrapolate=None, verbose=0):
@@ -550,7 +533,7 @@ class Interpolator(object):
         # List of atom pairs in bonds that are involved in transfer triplets.
         # List of atom pairs that are bonded in BOTH the reactant and product
         self.transfers, self.transfer_bonds, self.common_bonds = find_transfers_common_bonds(self.M)
-        print("Found these transfers:", self.transfers)
+        logger.info("Found these transfers: %s" % (self.transfers,) + '\n')
         # G matrix condition numbers.
         self.Gcond_matrix = np.zeros((self.n_frames, self.n_frames), dtype=float)
         # Molecule objects containing the endpoints.
@@ -658,10 +641,10 @@ class Interpolator(object):
             j = atom_pairs[pairidx][1]
             min_dist = np.min(np.array(distance_matrix)[np.array(frames),pairidx])
             if verbose:
-                print(">> Clash %10s: %8s at frames %6s (%9s, closest = %.3f, %.3f of thre)" % ("(new)" if (i, j) in clash_new else "(existing)",
+                logger.info(">> Clash %10s: %8s at frames %6s (%9s, closest = %.3f, %.3f of thre)" % ("(new)" if (i, j) in clash_new else "(existing)",
                                                                                                 "%s%i-%s%i" % (M.elem[i], i+1, M.elem[j], j+1), 
                                                                                                 commadash(frames), "bonded" if (i, j) in self.union_bonds else "nonbonded",
-                                                                                                min_dist, min_dist/R[pairidx]))
+                                                                                                min_dist, min_dist/R[pairidx]) + '\n')
         return clash_known, clash_new
 
     def prealign_one_stage(self, curr_coords, dest_coords, nDiv, scale_factors={'dihedral':0.0, 'translation':0.0, 'rotation':0.0}):
@@ -716,7 +699,7 @@ class Interpolator(object):
                         nstep0 += 1
                         k += 1
                     # if clash0:
-                    #     print("Trial %i: Clash in step %i in reactant direction:" % (trial, nstep0), clash0)
+                    #     logger.info("Trial %i: Clash in step %i in reactant direction:" % (trial, nstep0), clash0 + '\n')
                 if trial==1 and (clash0 and (clash1 or n_frag1 == 1)): break
                 if k >= nDiv: break
                 if n_frag1 > 1 and (trial==0 or not clash1):
@@ -735,7 +718,7 @@ class Interpolator(object):
                         nstep1 += 1
                         k += 1
                     # if clash1:
-                    #     print("Trial %i: Clash in step %i in product direction:" % (trial, nstep1), clash1)
+                    #     logger.info("Trial %i: Clash in step %i in product direction:" % (trial, nstep1), clash1 + '\n')
                 if trial==1 and (clash1 and (clash0 or n_frag0 == 1)): break
                 if k >= nDiv: break
             if trial==0 and not clash0 and not clash1:
@@ -745,7 +728,7 @@ class Interpolator(object):
         return coord_segment, coord_segment0, coord_segment1
     
     def prealign_fragments(self):
-        print(">> Aligning molecules in reactant and product")
+        logger.info(">> Aligning molecules in reactant and product" + '\n')
         # Build ICs for alignment
         M0, M1 = self.endmols
         xyz0, xyz1 = self.endxyzs
@@ -758,10 +741,10 @@ class Interpolator(object):
         M_prod = None
         for stage in [0, 1]:
             if stage == 0: 
-                print("Pre-alignment stage 0: Rotations")
+                logger.info("Pre-alignment stage 0: Rotations" + '\n')
                 scale_factors = {'dihedral':0.0, 'translation':0.0, 'rotation':1.0}
             elif stage == 1:
-                print("Pre-alignment stage 1: Translations")
+                logger.info("Pre-alignment stage 1: Translations" + '\n')
                 scale_factors = {'dihedral':0.0, 'translation':1.0, 'rotation':0.0}
             coord_segment, segment_reac, segment_prod = self.prealign_one_stage(xyz0_stage, xyz1_stage, self.n_frames, scale_factors)
             M_reac_stage = self.new_molecule(segment_reac)
@@ -782,13 +765,13 @@ class Interpolator(object):
         M_prod.comms = ["Alignment for product segment; frame %i" % i for i in range(len(M_prod))]
         if len(M_reac) > 1:
             if len(M_prod) > 1:
-                print("Alignment produced %i additional (reactant) and %i (product) frames" % (len(M_reac)-1, len(M_prod)-1))
+                logger.info("Alignment produced %i additional (reactant) and %i (product) frames" % (len(M_reac)-1, len(M_prod)-1) + '\n')
             else:
-                print("Alignment produced %i additional (reactant) frames" % (len(M_reac)-1))
+                logger.info("Alignment produced %i additional (reactant) frames" % (len(M_reac)-1) + '\n')
         elif len(M_prod) > 1:
-            print("Alignment produced %i additional (product) frames" % (len(M_prod)-1))
+            logger.info("Alignment produced %i additional (product) frames" % (len(M_prod)-1) + '\n')
         else:
-            print("Alignment produced no additional frames")
+            logger.info("Alignment produced no additional frames" + '\n')
         # The endpoints after prealingment.
         M_end = M_reac[-1] + M_prod[-1]
         # The product segment goes from the product back to initial. Reverse it here.
@@ -880,8 +863,8 @@ class Interpolator(object):
         IC.Prims.Internals = newPrims
         IC.Prims.reorderPrimitives()
         IC.build_dlc(xyz_IC)
-        # print("=== Primitives for method %i ===" % method)
-        # print(IC.Prims)
+        # logger.info("=== Primitives for method %i ===" % method + '\n')
+        # logger.info(IC.Prims + '\n')
 
         # Build a "checking" IC system used to detect whether any primitive ICs are changing very rapidly between frames.
         # This is one of our diagnostics for whether the generated path is "good".
@@ -932,7 +915,7 @@ class Interpolator(object):
             # Check for clashes
             clash_pairs, clash_new = self.detect_clash_trajectory(coord_segment, clash_known=clash_pairs, altdists=self.min_enddists, verbose=False)
             if not clash_new:
-                # print("No new clashes found; finishing")
+                # logger.info("No new clashes found; finishing" + '\n')
                 break
             else:
                 for (i, j) in clash_pairs:
@@ -952,8 +935,8 @@ class Interpolator(object):
             M_, status, dq_ratio, endpt_err = self.end_to_end(method=method)
             # M_.write('interpolated_endpoints_method%i.xyz' % method)
             # Keep the interpolation path with status=0 and the lowest dq_ratio
-            print("Initial pathway generation using method %i %s; dq_ratio = %.3f endpt_err = %.3f" % 
-                  (method, "success" if status == 0 else "failed", dq_ratio, endpt_err))
+            logger.info("Initial pathway generation using method %i %s; dq_ratio = %.3f endpt_err = %.3f" % 
+                  (method, "success" if status == 0 else "failed", dq_ratio, endpt_err) + '\n')
             if status == 0 and dq_ratio < dq_ratio_min:
                 M = deepcopy(M_)
                 dq_ratio_min = dq_ratio
@@ -964,7 +947,7 @@ class Interpolator(object):
         M.write("initial_guess.xyz")
         # Overwrite the Molecule object currently being processed
         self.M = deepcopy(M)
-        print("Keeping the result from method %i" % keep_method)
+        logger.info("Keeping the result from method %i" % keep_method + '\n')
 
     def run_fast(self):
         M = None
@@ -974,8 +957,8 @@ class Interpolator(object):
             M_, status, dq_ratio, endpt_err = self.end_to_end(method=method, rebuild_dlc=False, respace=False)
             # M_.write('interpolated_endpoints_method%i.xyz' % method)
             # Keep the interpolation path with status=0 and the lowest dq_ratio
-            print("Initial pathway generation using method %i %s; dq_ratio = %.3f endpt_err = %.3f" % 
-                  (method, "success" if status == 0 else "failed", dq_ratio, endpt_err))
+            logger.info("Initial pathway generation using method %i %s; dq_ratio = %.3f endpt_err = %.3f" % 
+                  (method, "success" if status == 0 else "failed", dq_ratio, endpt_err) + '\n')
             if status == 0 and dq_ratio < dq_ratio_min:
                 M = deepcopy(M_)
                 dq_ratio_min = dq_ratio
@@ -987,7 +970,7 @@ class Interpolator(object):
         M.write("interpolated_fast_mode.xyz")
         # Overwrite the Molecule object currently being processed
         self.M = deepcopy(M)
-        print("Keeping the result from method %i" % keep_method)
+        logger.info("Keeping the result from method %i" % keep_method + '\n')
         return
 
     def assign_ICs_to_segments(self):
@@ -999,9 +982,9 @@ class Interpolator(object):
         n_frames = self.n_frames
 
         segment_to_ICs = []
-        print("Determining which IC to use in each segment:")
+        logger.info("Determining which IC to use in each segment:" + '\n')
         for a, (ii, jj) in enumerate(segments_filled):
-            print("=== Now working on segment (%i, %i) ===" % (ii, jj))
+            logger.info("=== Now working on segment (%i, %i) ===" % (ii, jj) + '\n')
             Gcond_maxs = []
             diags = []
             # For each IC, calculate the maximum condition number over all frames
@@ -1030,7 +1013,7 @@ class Interpolator(object):
                 if ICs[iic] not in candidate_ICs:
                     candidate_frames.append(iic)
                     candidate_ICs.append(ICs[iic])
-                    print("(%i, %i): adding the IC from frame %i; diagnostic = %i, Gcond_max = %.5e" % (ii, jj, iic, diags[c], Gcond_maxs[c]))
+                    logger.info("(%i, %i): adding the IC from frame %i; diagnostic = %i, Gcond_max = %.5e" % (ii, jj, iic, diags[c], Gcond_maxs[c]) + '\n')
                 
             max_candidates = 5
             if ii == 0:# and diags[0] <= 1:
@@ -1049,7 +1032,7 @@ class Interpolator(object):
         self.segment_to_ICs = segment_to_ICs
 
     def build_IC_segments(self):
-        print("Building internal coordinates and determining segments:")
+        logger.info("Building internal coordinates and determining segments:" + '\n')
         assert len(self.M) == self.n_frames
         M = deepcopy(self.M)
         transfers = self.transfers
@@ -1105,7 +1088,7 @@ class Interpolator(object):
                     for k in range(j-i):
                         dSplits.append(max(np.max(dihArcs[k]), np.max(dihArcs[-1]-dihArcs[k])))
                     split_k = i + np.argmin(dSplits)
-                    print("maximum dihedral difference between %i-%i is %.3f; splitting at %i (reduce to %.3f)" % (i, j, dMax, split_k, np.min(dSplits)))
+                    logger.info("maximum dihedral difference between %i-%i is %.3f; splitting at %i (reduce to %.3f)" % (i, j, dMax, split_k, np.min(dSplits)) + '\n')
                     new_segments.append((i, split_k))
                     new_segments.append((split_k+1, j))
                 else:
@@ -1114,8 +1097,8 @@ class Interpolator(object):
             segments = new_segments[:]
 
         segments_filled, segments_spliced = fill_splice_segments(segments, splice_length)
-        print("The frame numbers of the spliced segments are:")
-        print(segments_spliced)
+        logger.info("The frame numbers of the spliced segments are:" + '\n')
+        logger.info('%s\n' % (segments_spliced,))
 
         # Assign some class variables to be used by other methods
         self.ICs = ICs
@@ -1161,24 +1144,24 @@ class Interpolator(object):
                 success = False
                 for c, (iic, IC) in enumerate(segment_to_ICs[a]):
                     if self.verbose: 
-                        print("In splice_iterations: c = %i, iic = %i, IC = %s" % (c, iic, IC.__repr__()))
+                        logger.info("In splice_iterations: c = %i, iic = %i, IC = %s" % (c, iic, IC.__repr__()) + '\n')
                         if self.verbose >= 2:
                             vali = IC.Prims.calculate(xyzi)
                             valj = IC.Prims.calculate(xyzj)
                             primDiff = IC.Prims.calcDiff(xyzj, xyzi, sync=0)
                             for iPrim in range(len(IC.Prims.Internals)):
-                                print("%3i %25s % 9.5f % 9.5f % 9.5f" % (iPrim, IC.Prims.Internals[iPrim], vali[iPrim], valj[iPrim], primDiff[iPrim]))
+                                logger.info("%3i %25s % 9.5f % 9.5f % 9.5f" % (iPrim, IC.Prims.Internals[iPrim], vali[iPrim], valj[iPrim], primDiff[iPrim]) + '\n')
                     attempt = 0
                     coord_segment, endpt_err, success = interpolate_segment(IC, xyzi, xyzj, nDiv, backward=backwards[a][c], rebuild_dlc=False, verbose=self.verbose, sync=0)
                     if self.verbose: 
-                        print("forward direction: endpt_err = %8.3f success = %i" % (endpt_err, success))
+                        logger.info("forward direction: endpt_err = %8.3f success = %i" % (endpt_err, success) + '\n')
                         if self.verbose >= 2:
                             write_coord_segment(M, coord_segment, "cycle%i_segment%i_IC%i_attempt%i.xyz" % (cycle, a, c, attempt))
                     if success: break
                     attempt = 1
                     coord_segment, endpt_err, success = interpolate_segment(IC, xyzi, xyzj, nDiv, backward=not backwards[a][c], rebuild_dlc=False, verbose=self.verbose, sync=0)
                     if self.verbose: 
-                        print("backward direction: endpt_err = %8.3f success = %i" % (endpt_err, success))
+                        logger.info("backward direction: endpt_err = %8.3f success = %i" % (endpt_err, success) + '\n')
                         if self.verbose >= 2:
                             write_coord_segment(M, coord_segment, "cycle%i_segment%i_IC%i_attempt%i.xyz" % (cycle, a, c, attempt))
                     if success: 
@@ -1210,10 +1193,10 @@ class Interpolator(object):
                             reordered_segment_to_ICs.append((iic, IC))
                     segment_to_ICs[a] = reordered_segment_to_ICs
                 else:
-                    print("Failed to interpolate segment %i-%i" % (i, j))
+                    logger.info("Failed to interpolate segment %i-%i" % (i, j) + '\n')
                     return 1, a
                 
-                print("Frames %2i-%2i error in final interpolated vs. product structure: %.3e (candidate %i attempt %i)" % (i, j, endpt_err, c, attempt))
+                logger.info("Frames %2i-%2i error in final interpolated vs. product structure: %.3e (candidate %i attempt %i)" % (i, j, endpt_err, c, attempt) + '\n')
                 coord_segments.append(np.array(coord_segment).copy())
                 endpt_errs.append(endpt_err)
                 if a == 0:
@@ -1234,7 +1217,7 @@ class Interpolator(object):
         
             if max_mismatch < min_max_mismatch:
                 min_max_mismatch = max_mismatch
-                print(">> Current best result (mismatch=%.3e) saved to interpolated_splice.xyz" % max_mismatch)
+                logger.info(">> Current best result (mismatch=%.3e) saved to interpolated_splice.xyz" % max_mismatch + '\n')
                 include_alignment = False
                 if include_alignment:
                     M_append = M_reac[:-1] + M + M_prod[1:]
@@ -1262,24 +1245,24 @@ class Interpolator(object):
                     if self.align_system:
                         M_with_extra.align(refidx=refidx)
                         
-                    print(">> Path with (%i head, %i tail) extrapolated frames saved to interpolated_splice_extra.xyz" % (self.extrapolate[0], self.extrapolate[1]))
+                    logger.info(">> Path with (%i head, %i tail) extrapolated frames saved to interpolated_splice_extra.xyz" % (self.extrapolate[0], self.extrapolate[1]) + '\n')
                     M_with_extra.write("interpolated_splice_extra.xyz")
     
             if max_mismatch < last_max_mismatch:
                 increase_count = 0
                 decrease_count += 1
                 if decrease_count >= 3 and damping < 1.0:
-                    print(">> Mismatch decreasing; resetting damping")
+                    logger.info(">> Mismatch decreasing; resetting damping" + '\n')
                     damping = 1.0
             else:
                 increase_count += 1
                 decrease_count = 0
                 min_damping = 0.2
                 if damping <= min_damping: 
-                    print(">> Mismatch fails to decrease but damping at maximum (% .3e) - continuing" % damping)
+                    logger.info(">> Mismatch fails to decrease but damping at maximum (% .3e) - continuing" % damping + '\n')
                 else:
                     damping = max(min_damping, damping*0.8)
-                    print(">> Mismatch fails to decrease; increasing damping (currently % .3e)" % damping)
+                    logger.info(">> Mismatch fails to decrease; increasing damping (currently % .3e)" % damping + '\n')
                 
             last_max_mismatch = max_mismatch
                 
@@ -1291,9 +1274,9 @@ class Interpolator(object):
             coord_traj = [M.xyzs[k].flatten()*ang2bohr for k in range(len(M))]
             clash_pairs, clash_new = self.detect_clash_trajectory(coord_traj, clash_known=clash_pairs, altdists=self.min_enddists, verbose=True)
             if clash_new:
-                print("Current list of clashing pairs:", ', '.join(["%s%i-%s%i" % (M.elem[i], i+1, M.elem[j], j+1) for i, j in clash_pairs]))
+                logger.info("Current list of clashing pairs: %s" % ', '.join(["%s%i-%s%i" % (M.elem[i], i+1, M.elem[j], j+1) for i, j in clash_pairs]) + '\n')
                 for a in range(len(segments_spliced)):
-                    print(">> Rebuilding ICs for segment %i" % a)
+                    logger.info(">> Rebuilding ICs for segment %i" % a + '\n')
                     rebuilt_segment_to_ICs = []
                     for c, (iic, IC) in enumerate(segment_to_ICs[a]):
                         new_repulsions = sorted(list(set(IC.Prims.repulsions).union(set(clash_pairs))))
@@ -1302,18 +1285,18 @@ class Interpolator(object):
                         IC1.build_dlc(M_in.xyzs[iic].flatten()*ang2bohr)
                         rebuilt_segment_to_ICs.append((iic, IC1))
                     segment_to_ICs[a] = rebuilt_segment_to_ICs
-                    print("Resetting due to clashes")
+                    logger.info("Resetting due to clashes" + '\n')
                     segment_endpoints = deepcopy(segment_endpoints_orig)
                     min_max_mismatch = 1e10
                     last_max_mismatch = 1e10
             else:
                 if max_mismatch < 1.8e-3:
-                    print("Converged!")
+                    logger.info("Converged!" + '\n')
                     return 0, 0
                 else:
                     continue
         if cycle == n_cycles - 1:
-            print("Not converged after %i cycles; best max-mismatch is %.5f" % (n_cycles, min_max_mismatch))
+            logger.info("Not converged after %i cycles; best max-mismatch is %.5f" % (n_cycles, min_max_mismatch) + '\n')
 
     def split_IC_segments(self, fail_segment):
         self.segments_filled, self.segments_spliced = split_segments(self.segments_spliced, fail_segment, self.splice_length)
@@ -1335,14 +1318,59 @@ class Interpolator(object):
             self.split_IC_segments(fail_segment)
             status, fail_segment = self.splice_iterations()
             if count == 3:
-                print("Failed after 3 splits; exiting")
+                logger.info("Failed after 3 splits; exiting" + '\n')
+
+def run_interpolator(**kwargs):
+    """
+    Run TRICS interpolation given arguments from the command line or a driver.
+    """
+    #==============================#
+    #|   Log file configuration   |#
+    #==============================#
+    if kwargs.get('logIni') is None:
+        logIni = os.path.join(config_dir, 'log.ini')
+    else:
+        logIni = kwargs.get('logIni')
+    inputf = kwargs['input']
+    arg_prefix = kwargs.get('prefix', None)
+    prefix = arg_prefix if arg_prefix is not None else os.path.splitext(inputf)[0]
+    logfilename = rf"{prefix}.log"
+    backed_up = bak(logfilename)
+    logging.config.fileConfig(logIni, defaults={'logfilename': logfilename}, disable_existing_loggers=False)
+    #==============================#
+    #| End log file configuration |#
+    #==============================#
+
+    logger.info('geometric-interpolate called with the following command line:\n')
+    logger.info(' '.join(sys.argv) + '\n')
+    print_logo(logger)
+    now = datetime.now()
+    logger.info('-=# \x1b[1;94m geomeTRIC started. Version: %s \x1b[0m #=-\n' % (geometric.__version__))
+    logger.info('Current date and time: %s\n' % now.strftime("%Y-%m-%d %H:%M:%S"))
+    if backed_up:
+        logger.info('Backed up existing log file: %s -> %s\n' % (logfilename, os.path.basename(backed_up)))
+
+    params = InterpParams(**kwargs)
+    t0 = time.time()
+    M0 = Molecule(inputf)
+    interpolator = Interpolator(
+        M0,
+        n_frames=params.nframes,
+        use_midframes=params.optimize,
+        align_system=params.align_system,
+        align_frags=params.align_frags,
+        fast=params.fast,
+        extrapolate=params.extrapolate,
+        verbose=params.verbose,
+    )
+    interpolator.run_workflow()
+    print_citation(logger)
+    logger.info("Time elapsed since start of interpolation: %.3f seconds\n" % (time.time()-t0))
+    return interpolator.M
 
 def main():
     args = parse_interpolate_args(sys.argv[1:])
-    params = InterpParams(**args)
-    M0 = Molecule(args['input'])
-    interpolator = Interpolator(M0, n_frames=params.nframes, use_midframes=params.optimize, align_system=params.align_system, align_frags=params.align_frags, fast=params.fast, extrapolate=params.extrapolate, verbose=params.verbose)
-    interpolator.run_workflow()
-    
+    run_interpolator(**args)
+
 if __name__ == "__main__":
     main()
