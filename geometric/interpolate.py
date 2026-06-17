@@ -782,7 +782,7 @@ class Interpolator(object):
         self.M = M_end
         self.endxyzs = []
         self.enddists = []
-        self.endmols = [deepcopy(M_reac), deepcopy(M_prod)]
+        self.endmols = [deepcopy(M_reac[-1]), deepcopy(M_prod[0])]
         for mol in self.endmols:
             self.endxyzs.append(mol.xyzs[-1].flatten()*ang2bohr)
             atom_pairs, distance_matrix = mol.distance_matrix(pbc=False)
@@ -1232,8 +1232,10 @@ class Interpolator(object):
                         M = M + M_prod[-1]
                     if self.align_system: 
                         M.align()
-                        
-                M.write("interpolated_splice.xyz")
+                if self.align_frags:
+                    M.write("interpolated_TRICS_prealigned.xyz")
+                else:
+                    M.write("interpolated_TRICS.xyz")
                 if self.extrapolate:
                     M_with_extra = deepcopy(M)
                     refidx = 0
@@ -1245,8 +1247,8 @@ class Interpolator(object):
                     if self.align_system:
                         M_with_extra.align(refidx=refidx)
                         
-                    logger.info(">> Path with (%i head, %i tail) extrapolated frames saved to interpolated_splice_extra.xyz" % (self.extrapolate[0], self.extrapolate[1]) + '\n')
-                    M_with_extra.write("interpolated_splice_extra.xyz")
+                    logger.info(">> Path with (%i head, %i tail) extrapolated frames saved to interpolated_TRICS_extra.xyz" % (self.extrapolate[0], self.extrapolate[1]) + '\n')
+                    M_with_extra.write("interpolated_TRICS_extra.xyz")
     
             if max_mismatch < last_max_mismatch:
                 increase_count = 0
