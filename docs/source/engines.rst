@@ -35,6 +35,8 @@ Different engines have different features available.  Here is a simple summary:
 +-------------+--------------+-----------------+---------+---------------+------------+
 | ASE         | No           | Yes             | No      | No            | No         |
 +-------------+--------------+-----------------+---------+---------------+------------+
+| MACE        | No           | No              | No      | No            | No         |
++-------------+--------------+-----------------+---------+---------------+------------+
 | QUICK       | No           | No              | No      | No            | No         |
 +-------------+--------------+-----------------+---------+---------------+------------+
 | CFOUR       | No           | Yes             | No      | Untested      | No         |
@@ -206,15 +208,32 @@ This is a wrapper engine for any `ASE <https://gitlab.com/ase/ase/>`_-compatible
 optimisation. The calculator needs to be importable in your Python environment, as well as ASE installed.
 Nb. this means that not only the calculators in the main ASE repo, but any calculator from other projects
 that is subclassed from ASE can be used, eg. `XTB <https://github.com/grimme-lab/xtb-python>`_,
-`GAP (with quippy) <https://github.com/libatoms/quip>`_.
+`GAP (with quippy) <https://github.com/libatoms/quip>`_, and `MACE <https://github.com/ACEsuit/mace>`_.
 
 Usage:
 
 * Selected using ``--engine ase``
 * Set the class of your calculator with ``--ase-class``, eg. ``--ase-class=xtb.ase.calculator.XTB``, ``--ase-class=quippy.potential.Potential``
 * Set any initialisation keyword arguments for the calculator class with ``--ase-kwargs``, where the given argument is parsed as a JSON string. Note, this requires correct quoting, eg. ``--ase-kwargs='{"method":"GFN2-xTB"}'``.
-* The charge and spin multiplicity for the XTB calculator can be set by passing ``charge`` and ``mult`` key-value pairs into ``ase-kwargs`` as: ``--ase-kwargs='{"method":"GFN2-xTB", "charge":0, "mult":1}'``.  
+* The charge and spin multiplicity for the XTB calculator can be set by passing ``charge`` and ``mult`` key-value pairs into ``ase-kwargs`` as: ``--ase-kwargs='{"method":"GFN2-xTB", "charge":0, "mult":1}'``.
+  For MACE-OMOL, ``charge`` and ``mult`` are mapped to ASE ``atoms.info`` (total charge and spin multiplicity).
 * (New in upcoming v1.1 release): Work Queue support for ASE engine.
+
+MACE Engine
+-----------
+
+Selected using ``--engine mace``. This is a convenience wrapper around the ASE engine for
+`MACE <https://github.com/ACEsuit/mace>`_ pretrained potentials.
+
+Usage:
+
+* ``--engine mace --model-path /path/to/checkpoint.model``
+* Optional ``--device [cpu]`` (``cpu`` or ``cuda``)
+* Input is typically a ``.xyz`` file for minimization, or a multi-frame XYZ for NEB
+
+Two-step workflows (MACE pre-optimization followed by QC) use ``--preopt yes`` with a QC
+``--engine`` and the same ``--model-path``; see :ref:`mace` for full documentation, including
+constrained scans and NEB.
 
 QUICK
 -----

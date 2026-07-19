@@ -62,6 +62,7 @@ The "engine" is the software to be used for computing energies and gradients, wh
 - ``gaussian`` : Use Gaussian (version 09 or 16). Provide a Gaussian job file with Cartesian coordinates.
 - ``openmm`` : Use OpenMM. Provide an OpenMM force field or system ``.xml`` file and a PDB file using ``--pdb`` for the initial structure and topology.
 - ``ase`` : Use ASE. Also requires the ``--ase-class`` and ``--ase-kwargs`` options to be specified.
+- ``mace`` : Use a MACE machine-learning potential (ASE backend). Requires ``--model-path``. Input is typically a ``.xyz`` file (or a multi-frame XYZ for NEB). See :ref:`mace`.
 - ``quick`` : Use QUICK. Provide a QUICK input file with Cartesian coordinates.
 - ``cfour`` : Use CFOUR. Provide a CFOUR input file with Cartesian coordinates. A Python script is provided to convert Z-matrix input prior to running the optimization.
 - ``gmx`` : Use Gromacs (experimental). Provide a Gromacs ``.gro`` file. A topology file ``topol.top`` and run parameters ``shot.mdp`` are required, with those exact names.
@@ -106,6 +107,34 @@ Provide the IRC direction as either ``forward``, ``backward`` or ``both`` (defau
 
 Provide ``yes`` to keep molecules / fragments rigid during the optimization.
 See :ref:`Constraints <constraints>` for more details.
+
+....
+
+``--preopt [yes/no]``
+
+Provide ``yes`` to run a **two-step** energy minimization: first optimize with a MACE MLIP,
+then continue with the QC/MM engine selected by ``--engine``. Requires ``--model-path``.
+The positional ``input`` file is still the QC input (geometry and charge/mult are taken from it).
+
+Outputs include ``[prefix]_preoptim.xyz`` (MLIP trajectory / final structure) and
+``[prefix]_optim.xyz`` (QC trajectory). For constraint scans, each scan point is
+pre-optimized with MACE then optimized with QC; see :ref:`mace`.
+
+Not supported with ``--transition`` or ``--irc``.
+
+....
+
+``--model-path [path]``
+
+Path to a MACE checkpoint file (``.model``). Required when ``--preopt yes`` or
+``--engine mace`` is used.
+
+....
+
+``--device [cpu]``
+
+Device for MLIP (MACE) evaluation: ``cpu`` or ``cuda``. Applies to two-step pre-optimization
+and to ``--engine mace`` (including NEB).
 
 ....
 
@@ -350,10 +379,14 @@ These options control the NEB method.
 
 ....
 
-``chain_coords``
+``input`` / ``chain_coords`` (NEB positionals)
 
-Name of the coordinate file containing multiple frames for NEB. This is a **required** positional argument along with the ``input`` file.
-It will override the molecular structure in the ``input`` file, which should contain the structure of the first image.
+* **QC engines (and ASE):** both are **required** —
+  ``geometric-neb --engine psi4 molecule.psi4in chain.xyz``.
+  ``chain_coords`` is the multi-frame path and overrides geometries from ``input``.
+* **MACE (``--engine mace``):** only the multi-frame chain XYZ is required —
+  ``geometric-neb --engine mace --model-path model.model chain.xyz``.
+  No separate QC input. See :ref:`mace`.
 
 ....
 
@@ -566,6 +599,9 @@ Specify the calculator class to import and use for ASE engine. This needs to be 
 importable. Under the hood, ``importlib`` is used to import it by name if it exists. eg. ``ase.calculators.lj.LennardJones``
 This can be pointing to any class that is a subclass of ``ase.calculators.calculator.Calculator``.
 
+For MACE, either use ``--engine mace --model-path ...`` or set
+``--ase-class=mace.calculators.mace.MACECalculator`` with ``--ase-kwargs`` (see :ref:`mace`).
+
 ....
 
 ``--ase-kwargs [JSON string]``
@@ -575,6 +611,11 @@ becoming a dictionary that is passed in at construction of the calculator.
 
 Be mindful of quoting, since JSON uses ``"`` for strings, so it it convenient to pack the command line option into
 single quotes ``'``. For example: ``--ase-kwargs='{"param_filename":"path/to/file.xml"}'``.
+
+Charge and spin multiplicity may be passed as ``charge`` and ``mult`` (mapped to ASE
+``atoms.info`` for MACE-OMOL style models). Example::
+
+    --ase-kwargs='{"model_paths":"/path/to.model","device":"cpu","default_dtype":"float64","charge":0,"mult":1}'
 
 
 Debugging options

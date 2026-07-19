@@ -161,6 +161,22 @@ class OptParams(object):
         # 0 = never project; 1 = auto-detect (default); 2 = always project
         self.subfrctor = kwargs.get('subfrctor', 1)
 
+        # Two-step optimization: MACE (or other MLIP via ASE) pre-optimization, then QC.
+        self.preopt = kwargs.get('preopt', False)
+        self.model_path = kwargs.get('model_path', None)
+        # Device for MLIP calculations (cpu/cuda). Accept legacy aliases.
+        self.device = (kwargs.get('device', None)
+                      or kwargs.get('pytorch_device', None)
+                      or kwargs.get('preopt_device', None)
+                      or 'cpu')
+        if self.preopt:
+            if not self.model_path:
+                raise ParamError("--model-path is required when --preopt is enabled")
+            if not os.path.exists(self.model_path):
+                raise ParamError("MLIP model file not found: %s" % self.model_path)
+            if self.transition or self.irc:
+                raise ParamError("--preopt is not supported with --transition or --irc")
+
     def convergence_criteria(self, **kwargs):
         criteria = kwargs.get('converge', [])
         # Whether to converge successfully on reaching maximum number of iterations
@@ -231,6 +247,10 @@ class OptParams(object):
             logger.info(' Hessian data will be read from file: %s\n' % self.hessian[5:])
         elif self.hessian.startswith('file+last:'):
             logger.info(' Hessian data will be read from file: %s, then computed for the last step.\n' % self.hessian[5:])
+        if self.preopt:
+            logger.info(' Two-step pre-optimization enabled (MLIP then QC).\n')
+            logger.info(' MLIP model path: %s\n' % self.model_path)
+            logger.info(' MLIP device: %s\n' % self.device)
 
 class NEBParams(object):
     """
@@ -336,7 +356,7 @@ def parse_optimizer_args(*args):
                           '"psi4" = Psi4                       "openmm" = OpenMM (pass a force field or XML input file)\n'
                           '"molpro" = Molpro                   "gmx" = Gromacs (pass conf.gro; requires topol.top and shot.mdp\n '
                           '"gaussian" = Gaussian09/16          "ase" = ASE calculator, use --ase-class/--ase-kwargs\n '
-                          '"quick" = QUICK                     "bagel" = Bagel\n')
+                          '"mace" = MACE MLIP (--model-path)   "quick" = QUICK                     "bagel" = Bagel\n')
     grp_univ.add_argument('--nt', type=int, help='Specify number of threads for running in parallel\n(for TeraChem this should be number of GPUs)')
 
     grp_jobtype = parser.add_argument_group('jobtype', 'Control the type of optimization job')
@@ -351,6 +371,10 @@ def parse_optimizer_args(*args):
     grp_jobtype.add_argument('--meci_alpha', type=float, help='Alpha parameter for MECI penalty function (default 0.025).\n'
                              'Not used if the engine computes the MECI objective function directly.\n ')
     grp_jobtype.add_argument('--rigid', type=str2bool, help='Provide "yes" to keep molecules rigid during optimization (only with TRIC)')
+    grp_jobtype.add_argument('--preopt', type=str2bool, help='Provide "yes" to pre-optimize with an MLIP (MACE) before the QC/MM engine.\n'
+                             'Requires --model-path. The QC engine is still selected with --engine and the input file.\n ')
+    grp_jobtype.add_argument('--model-path', type=str, dest='model_path', help='Path to MLIP checkpoint for --preopt or --engine mace (e.g. MACE-OMOL .model file).\n ')
+    grp_jobtype.add_argument('--device', type=str, help='Device for MLIP calculations (MACE, etc.): cpu or cuda (default cpu).\n ')
 
     grp_hessian = parser.add_argument_group('hessian', 'Control the calculation of Hessian (force constant) matrices and derived quantities')
     grp_hessian.add_argument('--hessian', type=str, help='Specify when to calculate Cartesian Hessian using finite difference of gradient.\n'
@@ -475,15 +499,19 @@ def parse_neb_args(*args):
     parser = ArgumentParserWithFile(add_help=False, formatter_class=argparse.RawTextHelpFormatter, fromfile_prefix_chars='@')
 
     grp_univ = parser.add_argument_group('universal', 'Relevant to every job')
-    grp_univ.add_argument('input', type=str, help='REQUIRED positional argument: Quantum chemistry or MM input file for calculation\n ')
-    grp_univ.add_argument('chain_coords', type=str, help='REQUIRED positional argument: Coordinate file containing multiple frames for NEB\n ')
+    grp_univ.add_argument('input', type=str, nargs='?', default=None,
+                          help='QC/MM input file (required for QC engines).\n'
+                          'Not required for --engine mace: pass only the multi-frame chain XYZ.\n ')
+    grp_univ.add_argument('chain_coords', type=str, nargs='?', default=None,
+                          help='Multi-frame coordinate file for the NEB chain (required).\n'
+                          'For --engine mace this may be the only positional argument.\n ')
     # TeraChem as a default option is only for the command line interface.
     grp_univ.add_argument('--engine', type=str, help='Specify engine for computing energies and gradients.\n'
                           '"tera" = TeraChem (default)         "qchem" = Q-Chem\n'
                           '"psi4" = Psi4                       "openmm" = OpenMM (pass a force field or XML input file)\n'
                           '"molpro" = Molpro                   "gmx" = Gromacs (pass conf.gro; requires topol.top and shot.mdp\n '
                           '"gaussian" = Gaussian09/16          "ase" = ASE calculator, use --ase-class/--ase-kwargs\n '
-                          '"quick" = QUICK\n')
+                          '"mace" = MACE MLIP (requires --model-path; pass chain XYZ only)   "quick" = QUICK\n')
     grp_univ.add_argument('--nt', type=int, help='Specify number of threads for running in parallel\n(for TeraChem this should be number of GPUs)')
 
     grp_nebparam = parser.add_argument_group('nebparam', 'Control the NEB calculation')
@@ -510,6 +538,26 @@ def parse_neb_args(*args):
     grp_nebparam.add_argument('--wqport', type=int, help='Work Queue port used to distribute singlepoint calculations. Workers must be started separately.\n ')
     grp_nebparam.add_argument('--bigchem', type=str2bool, help='Provide "Yes" to use BigChem for performing the NEB calculation in parallel. \n'
                                                                'Please ensure that BigChem is running with workers properly. \n')
+
+    grp_software = parser.add_argument_group('software', 'Options specific for certain software packages / MLIPs')
+    grp_software.add_argument(
+        '--ase-class',
+        type=str,
+        help='ASE calculator import path for --engine ase, e.g. "mace.calculators.mace.MACECalculator"')
+    grp_software.add_argument(
+        '--ase-kwargs',
+        type=str,
+        help='ASE calculator keyword args as JSON dictionary (for --engine ase)')
+    grp_software.add_argument(
+        '--model-path',
+        type=str,
+        dest='model_path',
+        help='Path to MACE checkpoint when using --engine mace')
+    grp_software.add_argument(
+        '--device',
+        type=str,
+        help='Device for MACE (cpu or cuda). Default cpu.')
+
     grp_output = parser.add_argument_group('output', 'Control the format and amount of the output')
     grp_output.add_argument('--prefix', type=str, help='Specify a prefix for log file and temporary directory.\n'
                             'Defaults to the input file path (incl. file name with extension removed).\n ')
@@ -526,13 +574,52 @@ def parse_neb_args(*args):
         if v is not None:
             args_dict[k] = v
 
-    # Check that the input file exists
-    # OpenMM .xml files don't have to be in the current folder.
-    if not args_dict['input'].endswith('.xml') and not os.path.exists(args_dict['input']):
-        raise RuntimeError("Input file does not exist")
-
     # Set any defaults that are neither provided on the command line nor in the options file
     if 'engine' not in args_dict:
         args_dict['engine'] = 'tera'
+
+    engine = args_dict.get('engine', 'tera').lower()
+    if engine[:4] == 'tera':
+        engine = 'tera'
+    args_dict['engine'] = engine
+
+    if engine == 'mace' and not args_dict.get('model_path'):
+        raise RuntimeError("--model-path is required when using --engine mace")
+
+    # Resolve positionals:
+    # - QC engines: require both input and chain_coords
+    # - MACE: require only the chain XYZ. If a single positional was given, argparse
+    #   stores it as 'input'; remap it to chain_coords. Optionally accept two paths.
+    inp = args_dict.get('input')
+    chain = args_dict.get('chain_coords')
+    if engine == 'mace':
+        if chain is None and inp is not None:
+            # single positional: chain only
+            chain = inp
+            args_dict['chain_coords'] = chain
+            args_dict['input'] = chain  # structure template = chain file
+        elif chain is not None and inp is None:
+            args_dict['input'] = chain
+        elif chain is None and inp is None:
+            raise RuntimeError(
+                "For --engine mace, provide a multi-frame chain XYZ as the positional argument, e.g.\n"
+                "  geometric-neb --engine mace --model-path model.model chain.xyz"
+            )
+        # if both provided, keep them as-is
+    else:
+        if inp is None or chain is None:
+            raise RuntimeError(
+                "NEB requires two positional arguments for QC engines: input and chain_coords, e.g.\n"
+                "  geometric-neb --engine psi4 molecule.psi4in chain.xyz"
+            )
+
+    # Check that required files exist
+    # OpenMM .xml files don't have to be in the current folder.
+    for key in ('input', 'chain_coords'):
+        path = args_dict.get(key)
+        if path is None:
+            continue
+        if not path.endswith('.xml') and not os.path.exists(path):
+            raise RuntimeError("%s file does not exist: %s" % (key, path))
 
     return args_dict

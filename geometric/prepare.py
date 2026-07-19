@@ -41,7 +41,7 @@ import shutil
 
 import os
 
-from .ase_engine import EngineASE
+from .ase_engine import EngineASE, build_mace_engine
 from .errors import EngineError, InputError
 from .internal import Distance, Angle, Dihedral, CartesianX, CartesianY, CartesianZ, TranslationX, TranslationY, TranslationZ, RotationA, RotationB, RotationC, CentroidDistance
 from .engine import set_tcenv, load_tcin, TeraChem, ConicalIntersection, Psi4, QChem, Gromacs, Molpro, OpenMM, QCEngineAPI, Gaussian, Bagel, QUICK, CFOUR
@@ -136,7 +136,7 @@ def get_molecule_engine(**kwargs):
         engine_str = engine_str.lower()
         if engine_str[:4] == 'tera':
             engine_str = 'tera'
-        implemented_engines = ('tera', 'qchem', 'psi4', 'gmx', 'molpro', 'openmm', 'qcengine', "gaussian", "bagel", "ase", "quick", "cfour")
+        implemented_engines = ('tera', 'qchem', 'psi4', 'gmx', 'molpro', 'openmm', 'qcengine', "gaussian", "bagel", "ase", "mace", "quick", "cfour")
         if engine_str not in implemented_engines:
             raise RuntimeError("Valid values of engine are: " + ", ".join(implemented_engines))
         if customengine:
@@ -368,6 +368,22 @@ def get_molecule_engine(**kwargs):
                 ase_class_name,
                 **json.loads(ase_kwargs),
             )
+        elif engine_str == "mace":
+            logger.info("MACE MLIP engine selected (ASE backend).\n")
+            model_path = kwargs.get("model_path", None)
+            if not model_path:
+                raise RuntimeError("--model-path is required when using engine=mace")
+            # Prefer chain XYZ for NEB (MACE often has only chain_coords); else input
+            struct_file = kwargs.get("input") or kwargs.get("chain_coords")
+            if struct_file is None:
+                raise RuntimeError("MACE engine requires a structure file (input or chain_coords)")
+            M = Molecule(struct_file, radii=radii, fragment=frag)
+            if kwargs.get("charge") is not None:
+                M.charge = kwargs.get("charge")
+            if kwargs.get("mult") is not None:
+                M.mult = kwargs.get("mult")
+            device = kwargs.get("device") or kwargs.get("pytorch_device") or kwargs.get("preopt_device") or "cpu"
+            engine = build_mace_engine(M, model_path, device=device)
         else:
             raise RuntimeError("Failed to create an engine object, this might be a bug in get_molecule_engine")
     elif customengine:

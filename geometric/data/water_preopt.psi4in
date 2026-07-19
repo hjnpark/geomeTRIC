@@ -1,0 +1,11 @@
+molecule {
+0 1
+O   0.000000   0.000000   0.000000
+H  -0.960000   0.250000   0.000000
+H   0.960000   0.250000   0.000000
+}
+
+set basis sto-3g
+set maxiter 100
+set guess sad
+gradient('hf')

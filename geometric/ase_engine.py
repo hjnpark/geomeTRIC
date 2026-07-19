@@ -27,7 +27,49 @@ import numpy as np
 from .engine import Engine, EngineError
 from .errors import CheckCoordError
 from .molecule import Molecule
-from .nifty import ang2bohr, bohr2ang, getWorkQueue, queue_up_src_dest
+from .nifty import ang2bohr, bohr2ang, getWorkQueue, queue_up_src_dest, logger
+
+def build_mace_engine(molecule, model_path, device='cpu'):
+    """
+    Build an ASE/MACE Engine for energy and gradient evaluations.
+
+    Used by two-step pre-optimization and by NEB when --engine mace is selected.
+    Charge and spin multiplicity are taken from the Molecule object when present
+    and stored in ASE atoms.info for models that use them (e.g. MACE-OMOL).
+    """
+    if not os.path.exists(model_path):
+        raise EngineError("MLIP model file not found: %s" % model_path)
+
+    calc_kwargs = {
+        'model_paths': model_path,
+        'device': device or 'cpu',
+        'default_dtype': 'float64',
+    }
+    # Multi-head OMOL checkpoints need head="omol"
+    if 'omol' in os.path.basename(model_path).lower():
+        calc_kwargs['head'] = 'omol'
+
+    charge = getattr(molecule, 'charge', 0) or 0
+    mult = getattr(molecule, 'mult', 1) or 1
+    calc_kwargs['charge'] = charge
+    calc_kwargs['mult'] = mult
+
+    logger.info("Building MACE engine\n")
+    logger.info("  model_path : %s\n" % model_path)
+    logger.info("  device     : %s\n" % calc_kwargs['device'])
+    logger.info("  charge     : %s\n" % charge)
+    logger.info("  mult       : %s\n" % mult)
+
+    return EngineASE.from_calculator_string(
+        molecule,
+        'mace.calculators.mace.MACECalculator',
+        **calc_kwargs
+    )
+
+
+# Backward-compatible alias used by two-step geometry optimization
+build_mace_preopt_engine = build_mace_engine
+
 
 class EngineASE(Engine):
     def __init__(self, molecule: Molecule, calculator: Calculator):
@@ -39,19 +81,32 @@ class EngineASE(Engine):
 
     @classmethod
     def from_calculator_constructor(cls, molecule: Molecule, calculator, *args, **kwargs):
-        obj = cls(molecule, calculator(*args, **kwargs))
-        # A workaround to set the charge and spin multiplicity.
-        charge = kwargs.get("charge", 0)
+        # charge/mult are geomeTRIC electronic-state options, not ASE calculator constructor args.
+        calc_kwargs = dict(kwargs)
+        charge = calc_kwargs.pop("charge", getattr(molecule, "charge", 0) or 0)
+        mult = calc_kwargs.pop("mult", getattr(molecule, "mult", 1) or 1)
+
+        obj = cls(molecule, calculator(*args, **calc_kwargs))
+
+        # Older ASE calculators sometimes read total charge/spin from atom-0 initial values.
         initial_charges = np.zeros(len(obj.ase_atoms))
         initial_charges[0] = charge
         obj.ase_atoms.set_initial_charges(initial_charges)
-        mult = kwargs.get("mult", 1)
         initial_spins = np.zeros(len(obj.ase_atoms))
-        initial_spins[0] = mult-1
+        initial_spins[0] = mult - 1
         obj.ase_atoms.set_initial_magnetic_moments(initial_spins)
+
+        # MACE-OMOL (and similar) read total charge and spin multiplicity from atoms.info.
+        # Without this, --ase-kwargs charge/mult have no effect on those models.
+        obj.ase_atoms.info["charge"] = int(charge)
+        obj.ase_atoms.info["spin"] = int(mult)
+
         # This stores the needed information to re-create the Engine from strings (for example when using Work Queue)
         obj.calculator_import_path = calculator.__module__+'.'+calculator.__name__
-        obj.calculator_kwargs = kwargs
+        # Keep charge/mult in stored kwargs so Work Queue workers re-apply electronic state.
+        obj.calculator_kwargs = dict(calc_kwargs)
+        obj.calculator_kwargs["charge"] = charge
+        obj.calculator_kwargs["mult"] = mult
         return obj
 
     @classmethod

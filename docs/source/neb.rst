@@ -31,10 +31,15 @@ The NEB calculation will continue iterating until the average and maximum :math:
 Usage
 -----
 
-To run the NEB calculation with geomeTRIC, you need two input files:a QC input file and an xyz file containing the input chain coordinates.
-The input xyz file must contain at least the numer of images specified by the ``--images [11]`` argument.
-These two input files can be provided by running ``geometric-neb qc.input chain.xyz`` on the command line.
-The chain coordinates from the input xyz file will override the molecular geometry from the QC input file.
+To run the NEB calculation with geomeTRIC:
+
+* **QC engines:** two positional arguments are required —
+  ``geometric-neb qc.input chain.xyz``. The chain XYZ overrides geometries from the QC input.
+* **MACE:** only the multi-frame chain is required —
+  ``geometric-neb --engine mace --model-path model.model chain.xyz``.
+  See :ref:`mace` for details.
+
+The chain XYZ must contain at least the number of images specified by the ``--images [11]`` argument.
 
 By default, geomeTRIC will align all the images with the first image. This could be turned off by passing ``--align no``.
 If ``--optep yes`` is passed, the two endpoints of the input chain will be optimized before alignment.
