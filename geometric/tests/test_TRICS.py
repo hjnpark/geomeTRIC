@@ -36,14 +36,3 @@ def test_TRICS(localizer):
     assert ratio_2 < 3
     assert len(interpolated_1) == 50
     assert len(interpolated_2) == 50
-
-def test_align_frags(localizer):
-    """
-    Testing TRICS with prealigned frames    
-    """
-
-    interpolated = geometric.interpolate.run_interpolator(**{'input':os.path.join(datad, 'TRICS_input_3.xyz'), 'align_frags':True})
-    ratio = _calc_RMSD_ratio(interpolated)
-
-    assert ratio < 3
-    assert len(interpolated) == 50

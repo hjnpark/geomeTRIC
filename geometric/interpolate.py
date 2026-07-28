@@ -782,7 +782,7 @@ class Interpolator(object):
         self.M = M_end
         self.endxyzs = []
         self.enddists = []
-        self.endmols = [deepcopy(M_reac[-1]), deepcopy(M_prod[0])]
+        self.endmols = [deepcopy(M_reac), deepcopy(M_prod)]
         for mol in self.endmols:
             self.endxyzs.append(mol.xyzs[-1].flatten()*ang2bohr)
             atom_pairs, distance_matrix = mol.distance_matrix(pbc=False)
