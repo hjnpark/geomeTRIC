@@ -131,28 +131,16 @@ Energy minimization of azithromycin using Gaussian
 
 The above image shows the initial structure (in green) and final optimized structure, with the 2D structure on the right for reference.
 
-Two-step MACE pre-optimization then Psi4 (water hexamer)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-- Location: ``examples/1-simple-examples/water6_preopt_psi4``
-- Command line: ``geometric-optimize --engine psi4 --preopt yes --model-path $HOME/.cache/mace/MACE-omol-0-extra-large-1024.model --device cpu water6.psi4in``
-- Number of atoms: 18
-- Theoretical model: MACE-OMOL pre-opt, then HF/STO-3G (Psi4)
-- Optimization cycles (approx.): ~107 (MACE) + ~48 (Psi4)
-- Run time (approx.): <3 minutes
-- Description: Same system as the water hexamer energy minimization, using
-  two-step optimization: MACE pre-optimization followed by Psi4 HF/STO-3G.
-  Requires ``mace-torch`` and a local MACE checkpoint. See :ref:`mace`.
-
-HCN ↔ HNC NEB with MACE
-^^^^^^^^^^^^^^^^^^^^^^^
+HCN ↔ HNC NEB with MACE (via ASE)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 - Location: ``examples/1-simple-examples/hcn_hnc_neb_MACE``
-- Command line: ``geometric-neb --engine mace --model-path $HOME/.cache/mace/MACE-omol-0-extra-large-1024.model --device cpu --images 11 --align no --prefix hcn_mace HCN.xyz``
+- Command line: see ``command.sh`` in that folder (``--engine ase`` with
+  ``mace.calculators.mace.MACECalculator``)
 - Number of atoms: 3
 - Theoretical model: MACE-OMOL
 - NEB cycles (approx.): 32
 - Run time (approx.): ~1 minute
-- Description: NEB example for the HCN ↔ HNC isomerization using MACE only
-  (multi-frame chain XYZ; no QC input). See :ref:`mace` and ``command.sh`` in that folder.
+- Description: NEB example for the HCN ↔ HNC isomerization using MACE through
+  the ASE engine (multi-frame chain XYZ). See :ref:`mace`.
 

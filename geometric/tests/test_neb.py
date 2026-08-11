@@ -554,8 +554,9 @@ def test_hcn_neb_service_special(localizer):
     assert 1 == len(out_dict["GPs"])
 
 
+
 # ---------------------------------------------------------------------------
-# NEB with MACE MLIP engine
+# NEB with MACE via ASE engine
 # ---------------------------------------------------------------------------
 
 def _mace_mp_small_path_neb():
@@ -574,9 +575,9 @@ def _mace_mp_small_path_neb():
 
 @addons.using_mace
 @addons.using_ase
-def test_mace_hcn_neb_few_cycles(localizer):
+def test_ase_mace_hcn_neb_few_cycles(localizer):
     """
-    Run a few NEB cycles on HCN with MACE.
+    Run a few NEB cycles on HCN with MACE through the ASE engine.
 
     Full convergence on MACE-MP is not required (materials model on a molecular
     isomerization); this checks that energies/gradients flow into the band and
@@ -584,11 +585,16 @@ def test_mace_hcn_neb_few_cycles(localizer):
     """
     shutil.copy2(os.path.join(datad, "hcn_neb_input.xyz"), "hcn_neb_input.xyz")
     model = _mace_mp_small_path_neb()
+    ase_kwargs = json.dumps({
+        "model_paths": model,
+        "mace_device": "cpu",
+        "default_dtype": "float64",
+    })
 
     M, engine = geometric.prepare.get_molecule_engine(
-        engine="mace",
-        model_path=model,
-        device="cpu",
+        engine="ase",
+        ase_class="mace.calculators.mace.MACECalculator",
+        ase_kwargs=ase_kwargs,
         input="hcn_neb_input.xyz",
         chain_coords="hcn_neb_input.xyz",
         images=5,

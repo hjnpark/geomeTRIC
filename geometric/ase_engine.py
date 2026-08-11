@@ -27,48 +27,7 @@ import numpy as np
 from .engine import Engine, EngineError
 from .errors import CheckCoordError
 from .molecule import Molecule
-from .nifty import ang2bohr, bohr2ang, getWorkQueue, queue_up_src_dest, logger
-
-def build_mace_engine(molecule, model_path, device='cpu'):
-    """
-    Build an ASE/MACE Engine for energy and gradient evaluations.
-
-    Used by two-step pre-optimization and by NEB when --engine mace is selected.
-    Charge and spin multiplicity are taken from the Molecule object when present
-    and stored in ASE atoms.info for models that use them (e.g. MACE-OMOL).
-    """
-    if not os.path.exists(model_path):
-        raise EngineError("MLIP model file not found: %s" % model_path)
-
-    calc_kwargs = {
-        'model_paths': model_path,
-        'device': device or 'cpu',
-        'default_dtype': 'float64',
-    }
-    # Multi-head OMOL checkpoints need head="omol"
-    if 'omol' in os.path.basename(model_path).lower():
-        calc_kwargs['head'] = 'omol'
-
-    charge = getattr(molecule, 'charge', 0) or 0
-    mult = getattr(molecule, 'mult', 1) or 1
-    calc_kwargs['charge'] = charge
-    calc_kwargs['mult'] = mult
-
-    logger.info("Building MACE engine\n")
-    logger.info("  model_path : %s\n" % model_path)
-    logger.info("  device     : %s\n" % calc_kwargs['device'])
-    logger.info("  charge     : %s\n" % charge)
-    logger.info("  mult       : %s\n" % mult)
-
-    return EngineASE.from_calculator_string(
-        molecule,
-        'mace.calculators.mace.MACECalculator',
-        **calc_kwargs
-    )
-
-
-# Backward-compatible alias used by two-step geometry optimization
-build_mace_preopt_engine = build_mace_engine
+from .nifty import ang2bohr, bohr2ang, getWorkQueue, queue_up_src_dest
 
 
 class EngineASE(Engine):
@@ -82,9 +41,16 @@ class EngineASE(Engine):
     @classmethod
     def from_calculator_constructor(cls, molecule: Molecule, calculator, *args, **kwargs):
         # charge/mult are geomeTRIC electronic-state options, not ASE calculator constructor args.
+        # mace_device/mace_head are geomeTRIC aliases mapped onto MACECalculator's device/head.
         calc_kwargs = dict(kwargs)
         charge = calc_kwargs.pop("charge", getattr(molecule, "charge", 0) or 0)
         mult = calc_kwargs.pop("mult", getattr(molecule, "mult", 1) or 1)
+        mace_device = calc_kwargs.pop("mace_device", None)
+        mace_head = calc_kwargs.pop("mace_head", None)
+        if mace_device is not None:
+            calc_kwargs["device"] = mace_device
+        if mace_head is not None:
+            calc_kwargs["head"] = mace_head
 
         obj = cls(molecule, calculator(*args, **calc_kwargs))
 
@@ -103,8 +69,14 @@ class EngineASE(Engine):
 
         # This stores the needed information to re-create the Engine from strings (for example when using Work Queue)
         obj.calculator_import_path = calculator.__module__+'.'+calculator.__name__
-        # Keep charge/mult in stored kwargs so Work Queue workers re-apply electronic state.
+        # Store user-facing kwargs so Work Queue workers re-apply the same remapping.
         obj.calculator_kwargs = dict(calc_kwargs)
+        if mace_device is not None:
+            obj.calculator_kwargs.pop("device", None)
+            obj.calculator_kwargs["mace_device"] = mace_device
+        if mace_head is not None:
+            obj.calculator_kwargs.pop("head", None)
+            obj.calculator_kwargs["mace_head"] = mace_head
         obj.calculator_kwargs["charge"] = charge
         obj.calculator_kwargs["mult"] = mult
         return obj

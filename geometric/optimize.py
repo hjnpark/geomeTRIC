@@ -53,7 +53,6 @@ from .normal_modes import calc_cartesian_hessian, frequency_analysis
 from .step import brent_wiki, Froot, calc_drms_dmax, get_cartesian_norm, get_delta_prime, trust_step, force_positive_definite, update_hessian
 from .prepare import get_molecule_engine, parse_constraints
 from .params import OptParams, parse_optimizer_args
-from .ase_engine import EngineASE, build_mace_engine, build_mace_preopt_engine
 from .nifty import row, col, flat, bohr2ang, ang2bohr, logger, bak, createWorkQueue, destroyWorkQueue, printcool_dictionary
 from .errors import InputError, HessianExit, EngineError, IRCError, GeomOptNotConvergedError, GeomOptStructureError, LinearTorsionError
 from .config import config_dir
@@ -745,50 +744,6 @@ class Optimizer(object):
         self.IRC_info["total_disp"] = 0.0
         self.prepareFirstStep()
 
-    def reset_progress(self, engine=None, dirname=None, coords=None, molecule=None, IC=None):
-        """
-        Reset trajectory and optimizer state for a new optimization stage.
-
-        Used after MLIP pre-optimization to start a fresh QC stage (analogous to
-        reset_irc for switching IRC direction). Clears self.progress, iteration
-        counters, and trust radius; optionally swaps engine/dirname/coords/IC.
-        """
-        if engine is not None:
-            self.engine = engine
-        if dirname is not None:
-            self.dirname = dirname
-            if not os.path.exists(self.dirname):
-                os.makedirs(self.dirname)
-        if molecule is not None:
-            self.molecule = deepcopy(molecule)
-        if coords is not None:
-            self.X = coords.copy()
-            self.coords = coords.copy()
-            self.molecule.xyzs[0] = self.X.reshape(-1, 3) * bohr2ang
-        if IC is not None:
-            self.IC0 = IC
-            self.IC = IC
-
-        # Fresh trajectory for the new stage
-        self.progress = deepcopy(self.molecule)
-        self.progress.xyzs = []
-        self.progress.qm_energies = []
-        self.progress.qm_grads = []
-        self.progress.comms = []
-
-        self.Iteration = 0
-        self.CoordCounter = 0
-        self.state = OPT_STATE.NEEDS_EVALUATION
-        self.trust = self.params.trust
-        self.trustprint = "="
-        self.ForceRebuild = False
-        self.lowq_tr_count = 0
-        self.recalcHess = False
-
-        if hasattr(self.engine, 'clearCalcs'):
-            self.engine.clearCalcs()
-
-
     def evaluate_IRC_step(self, params, step_state, criteria_met, IRC_converged):
 
         if self.Iteration > params.maxiter:
@@ -1383,65 +1338,8 @@ def run_optimizer(**kwargs):
         logger.info("#| and rotation from the optimization space.                                       |#\n")
         logger.info("#===================================================================================#\n")
 
-    def _run_mace_preopt_once(coords_in, molecule, constraints, cval, tag=None, print_info=True):
-        """
-        One MLIP constrained/unconstrained pre-optimization for the current geometry.
-
-        Parameters
-        ----------
-        tag : str or None
-            Optional filename tag, e.g. "-001" for scan point 1 → prefix_preoptim-001.xyz
-        """
-        params_mace = deepcopy(params)
-        params_mace.hessian = 'never'
-        params_mace.frequency = False
-        params_mace.preopt = False
-        if tag is None:
-            params_mace.xyzout = prefix + "_preoptim.xyz"
-            dirname_mace = prefix + "_preopt.tmp"
-        else:
-            params_mace.xyzout = prefix + "_preoptim%s.xyz" % tag
-            dirname_mace = prefix + "_preopt%s.tmp" % tag
-        if not os.path.exists(dirname_mace):
-            os.makedirs(dirname_mace)
-
-        IC_mace = CoordClass(molecule, build=True, connect=connect, addcart=addcart,
-                             constraints=constraints, cvals=cval, conmethod=conmethod, rigid=rigid)
-        if constraints is not None:
-            IC_mace.printConstraints(coords_in, thre=-1)
-
-        progress_mace = Optimize(coords_in, molecule, IC_mace, engine_mace, dirname_mace,
-                                 params_mace, print_info=print_info)
-        preopt_xyz = params_mace.xyzout
-        progress_mace.write(preopt_xyz)
-        logger.info("\nMLIP pre-optimization converged. Structure written to %s\n" % preopt_xyz)
-        logger.info("MLIP trajectory frames: %i\n" % len(progress_mace))
-
-        molecule.xyzs[0] = progress_mace.xyzs[-1].copy()
-        coords_out = molecule.xyzs[0].flatten() * ang2bohr
-        molecule.build_topology()
-        if hasattr(engine, 'clearCalcs'):
-            engine.clearCalcs()
-        return coords_out, progress_mace
-
-    # Build MLIP engine once if preopt is requested (reused across scan points)
-    engine_mace = None
-    if params.preopt:
-        engine_mace = build_mace_preopt_engine(M, params.model_path, params.device)
-
     if Cons is None:
-        # Unconstrained minimization (optional MLIP preopt, then QC)
-        if params.preopt:
-            logger.info("\n" + "#" * 72 + "\n")
-            logger.info("# Stage 1/2: MLIP pre-optimization (MACE via ASE)\n")
-            logger.info("#" * 72 + "\n\n")
-            coords, progress_mace = _run_mace_preopt_once(coords, M, None, None)
-            IC = CoordClass(M, build=True, connect=connect, addcart=addcart,
-                            constraints=None, cvals=None, conmethod=conmethod, rigid=rigid)
-            logger.info("\n" + "#" * 72 + "\n")
-            logger.info("# Stage 2/2: QC / user-engine optimization\n")
-            logger.info("#" * 72 + "\n\n")
-
+        # Run a standard geometry optimization
         add = "_optim.xyz"
         if params.irc:
             if params.irc_direction == 'both':
@@ -1450,36 +1348,16 @@ def run_optimizer(**kwargs):
         params.xyzout = prefix+add
         progress = Optimize(coords, M, IC, engine, dirname, params)
     else:
-        # Constrained optimization or scan: each point can use MLIP then QC
+        # Run a constrained geometry optimization
         if isinstance(IC, (CartesianCoordinates, PrimitiveInternalCoordinates)):
             raise RuntimeError("Constraints only work with delocalized internal coordinates")
         Mfinal = None
-        progress = None
         for ic, CVal in enumerate(CVals):
-            is_scan = len(CVals) > 1
-            if is_scan:
+            if len(CVals) > 1:
                 logger.info("---=== Scan %i/%i : Constrained Optimization ===---\n" % (ic+1, len(CVals)))
-            scan_tag = "-%03i" % (ic+1) if is_scan else None
-
-            if params.preopt:
-                logger.info("\n" + "#" * 72 + "\n")
-                if is_scan:
-                    logger.info("# Scan %i/%i — Stage 1/2: MLIP pre-optimization\n" % (ic+1, len(CVals)))
-                else:
-                    logger.info("# Stage 1/2: MLIP pre-optimization (MACE via ASE)\n")
-                logger.info("#" * 72 + "\n\n")
-                coords, progress_mace = _run_mace_preopt_once(
-                    coords, M, Cons, CVal, tag=scan_tag, print_info=(ic == 0))
-                logger.info("\n" + "#" * 72 + "\n")
-                if is_scan:
-                    logger.info("# Scan %i/%i — Stage 2/2: QC / user-engine optimization\n" % (ic+1, len(CVals)))
-                else:
-                    logger.info("# Stage 2/2: QC / user-engine optimization\n")
-                logger.info("#" * 72 + "\n\n")
-
             IC = CoordClass(M, build=True, connect=connect, addcart=addcart, constraints=Cons, cvals=CVal, conmethod=conmethod, rigid=rigid)
             IC.printConstraints(coords, thre=-1)
-            if is_scan:
+            if len(CVals) > 1:
                 params.xyzout = prefix+"_scan-%03i.xyz" % (ic+1)
                 # In the special case of a constraint scan, we write out multiple qdata.txt files
                 if params.qdata is not None: params.qdata = 'qdata_scan-%03i.txt' % (ic+1)

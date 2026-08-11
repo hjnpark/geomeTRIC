@@ -35,8 +35,6 @@ Different engines have different features available.  Here is a simple summary:
 +-------------+--------------+-----------------+---------+---------------+------------+
 | ASE         | No           | Yes             | No      | No            | No         |
 +-------------+--------------+-----------------+---------+---------------+------------+
-| MACE        | No           | No              | No      | No            | No         |
-+-------------+--------------+-----------------+---------+---------------+------------+
 | QUICK       | No           | No              | No      | No            | No         |
 +-------------+--------------+-----------------+---------+---------------+------------+
 | CFOUR       | No           | Yes             | No      | Untested      | No         |
@@ -213,27 +211,19 @@ that is subclassed from ASE can be used, eg. `XTB <https://github.com/grimme-lab
 Usage:
 
 * Selected using ``--engine ase``
-* Set the class of your calculator with ``--ase-class``, eg. ``--ase-class=xtb.ase.calculator.XTB``, ``--ase-class=quippy.potential.Potential``
+* Set the class of your calculator with ``--ase-class``, eg. ``--ase-class=xtb.ase.calculator.XTB``, ``--ase-class=quippy.potential.Potential``, ``--ase-class=mace.calculators.mace.MACECalculator``
 * Set any initialisation keyword arguments for the calculator class with ``--ase-kwargs``, where the given argument is parsed as a JSON string. Note, this requires correct quoting, eg. ``--ase-kwargs='{"method":"GFN2-xTB"}'``.
-* The charge and spin multiplicity for the XTB calculator can be set by passing ``charge`` and ``mult`` key-value pairs into ``ase-kwargs`` as: ``--ase-kwargs='{"method":"GFN2-xTB", "charge":0, "mult":1}'``.
-  For MACE-OMOL, ``charge`` and ``mult`` are mapped to ASE ``atoms.info`` (total charge and spin multiplicity).
+* Charge and spin multiplicity: pass ``charge`` and ``mult`` inside ``--ase-kwargs``
+  (there is no separate ``--charge`` / ``--mult`` flag for ASE). Precedence is
+  (1) values in ``ase-kwargs``, else (2) ``Molecule.charge`` / ``Molecule.mult`` if
+  present, else (3) defaults ``0`` / ``1``. Kwargs win if both sources disagree; the
+  ``Molecule`` object is not updated. Values are **not** calculator constructor
+  arguments: they are applied to ASE initial charges/moments and, for MACE-OMOL-style
+  models, to ``atoms.info["charge"]`` and ``atoms.info["spin"]`` (multiplicity).
+  Example: ``--ase-kwargs='{"method":"GFN2-xTB", "charge":0, "mult":1}'``.
+  Full detail for MACE: :ref:`mace_charge_mult`.
+* For MACE usage details (minimization, constraints, NEB), see :ref:`mace`.
 * (New in upcoming v1.1 release): Work Queue support for ASE engine.
-
-MACE Engine
------------
-
-Selected using ``--engine mace``. This is a convenience wrapper around the ASE engine for
-`MACE <https://github.com/ACEsuit/mace>`_ pretrained potentials.
-
-Usage:
-
-* ``--engine mace --model-path /path/to/checkpoint.model``
-* Optional ``--device [cpu]`` (``cpu`` or ``cuda``)
-* Input is typically a ``.xyz`` file for minimization, or a multi-frame XYZ for NEB
-
-Two-step workflows (MACE pre-optimization followed by QC) use ``--preopt yes`` with a QC
-``--engine`` and the same ``--model-path``; see :ref:`mace` for full documentation, including
-constrained scans and NEB.
 
 QUICK
 -----
