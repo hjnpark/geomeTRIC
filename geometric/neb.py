@@ -284,7 +284,7 @@ class Chain(object):
             Wrapper around quantum chemistry code (currently not a ForceBalance engine)
         tmpdir : string
             Temporary directory (relative to root) that the calculation temporary files will be written to.
-        parmas : NEB parameter object
+        params : NEB parameter object
             params.NEBparams()
         coords : np.ndarray, optional
             Array in a.u. containing coordinates (will overwrite what we have in molecule)
@@ -705,6 +705,23 @@ class ElasticBand(Chain):
         self.haveMetric = False
         self.climbSet = False
 
+        if self.params.ewneb:
+            # Upper/lower spring constants (a.u.): strong near high-E images, weak near low-E
+            self.ku = self.k
+            self.kl = self.k / self.params.ewneb
+
+    def energy_weighted_k(self, energy, Emax, Emin):
+        """
+        Calculate ew-spring constant between ku (at Emax) and kl (at Emin).
+
+        If the band is energetically flat, return the nominal spring constant self.k.
+        """
+        denom = Emax - Emin
+        if abs(denom) < 1e-12:
+            return self.k
+        alpha = (Emax - energy) / denom
+        return (1.0 - alpha) * self.ku + alpha * self.kl
+
     def clearCalcs(self, clearEngine=True):
         super(ElasticBand, self).clearCalcs(clearEngine=clearEngine)
         self._grads = OrderedDict()
@@ -1090,6 +1107,8 @@ class ElasticBand(Chain):
         self.TotBandEnergy = 0.0
         xyz = self.get_cartesian_all(endpts=True)
         energies = np.array([self.Structures[n].energy for n in range(len(self))])
+        Emax = float(np.max(energies))
+        Emin = float(np.min(energies))
 
         for n in range(1, len(self) - 1):
             cc_next = self.Structures[n + 1].cartesians
@@ -1097,15 +1116,24 @@ class ElasticBand(Chain):
             cc_prev = self.Structures[n - 1].cartesians
             ndrplus = np.linalg.norm(cc_next - cc_curr)
             ndrminus = np.linalg.norm(cc_curr - cc_prev)
+            # Energy-weighted spring constants: k_curr from image n, k_next from n+1
+            # (must match Force: forward spring uses k_next, backward uses k_curr)
+            if self.params.ewneb:
+                if n == 1:
+                    k_curr = self.energy_weighted_k(energies[n], Emax, Emin)
+                else:
+                    k_curr = k_next
+                k_next = self.energy_weighted_k(energies[n + 1], Emax, Emin)
+            else:
+                k_curr, k_next = self.k, self.k
             # The spring constant connecting each pair of images
             # should have the same strength.  This rather confusing "if"
             # statement ensures the spring constant is not incorrectly
             # doubled for non-end springs
             fplus = 0.5 if n == (len(self) - 2) else 0.25
             fminus = 0.5 if n == 1 else 0.25
-            k_new = self.k
-            self.SprBandEnergy += fplus * k_new * ndrplus**2
-            self.SprBandEnergy += fminus * k_new * ndrminus**2
+            self.SprBandEnergy += fplus * k_next * ndrplus**2
+            self.SprBandEnergy += fminus * k_curr * ndrminus**2
             self.PotBandEnergy += self.Structures[n].energy
         self.TotBandEnergy = self.SprBandEnergy + self.PotBandEnergy
 
@@ -1121,6 +1149,8 @@ class ElasticBand(Chain):
         grad_v_i = self.GlobalIC.calcGrad(xyz, grad_v_c.flatten())
         grad_v_p_c = np.zeros_like(grad_v_c)
         energies = np.array([self.Structures[n].energy for n in range(len(self))])
+        Emax = float(np.max(energies))
+        Emin = float(np.min(energies))
         force_s_c = np.zeros_like(grad_v_c)
         force_s_p_c = np.zeros_like(grad_v_c)
         straight = self.calc_straightness(xyz)
@@ -1136,13 +1166,23 @@ class ElasticBand(Chain):
             cc_prev = self.Structures[n - 1].cartesians
             ndrplus = np.linalg.norm(cc_next - cc_curr)
             ndrminus = np.linalg.norm(cc_curr - cc_prev)
-            # Plain elastic band force
-            k_new = self.k
+            # Energy-weighted spring constants: k_curr from image n, k_next from n+1
+            if self.params.ewneb:
+                if n == 1:
+                    k_curr = self.energy_weighted_k(energies[n], Emax, Emin)
+                else:
+                    k_curr = k_next
+                k_next = self.energy_weighted_k(energies[n + 1], Emax, Emin)
+            else:
+                k_curr, k_next = self.k, self.k
+
             # Force from the spring in the tangent direction
-            force_s = k_new * (cc_prev + cc_next - 2 * cc_curr) # Full spring force
-            force_s_p = k_new * (ndrplus - ndrminus) * tau
+            # Forward spring (to next) uses k_next; backward (to prev) uses k_curr
+            force_s = k_next * (cc_next - cc_curr) + k_curr * (cc_prev - cc_curr)
+            force_s_p = (k_next * ndrplus - k_curr * ndrminus) * tau
             # Now get the perpendicular component of the force from the potential
             force_v_p = force_v - np.dot(force_v, tau) * tau
+
             if self.climbSet and n in self.climbers:
                 # The climbing image feels no spring forces at all,
                 # and the force in the direction of the tangent is reversed.
@@ -1578,7 +1618,11 @@ def takestep(c_hist, chain, optCycle, LastForce, ForceRebuild, trust, Y, GW, GP,
     # Update the internal coordinates
     # Obtain a new chain with the step applied
     new_chain = chain.TakeStep(dy)
-    respaced = new_chain.delete_insert(1.5)
+    respaced = False
+    # Energy-weighted NEB intentionally uses uneven spacing (tighter near high-E
+    # images). Skipping delete_insert avoids undoing that distribution.
+    if not chain.params.ewneb:
+        respaced = new_chain.delete_insert(1.5)
     return (chain, new_chain, expect, expectG, ForceRebuild, LastForce, old_Y, old_GW, old_GP, respaced, optCycle)
 
 
@@ -1591,6 +1635,14 @@ def OptimizeChain(chain, engine, params, save_callback: Optional[Callable[[Chain
     ThreHQ = 0.5
     # Threshold below which chains should not be rejected
     ThreRJ = 0.001
+
+    # Energy-weighted NEB
+    if params.ewneb:
+        logger.info(
+            "Energy-weighted NEB requested. Spring force constant range: %.2f - %.2f kcal/mol/Ang^2\n"
+            % (params.nebk / params.ewneb, params.nebk)
+        )
+
     # Optimize the endpoints of the chain
     if params.optep:
         logger.info("Optimizing endpoint images \n")
