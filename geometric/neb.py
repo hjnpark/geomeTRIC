@@ -1101,14 +1101,37 @@ class ElasticBand(Chain):
             tau = dr / ndr
             self.set_tangent(n, tau)
 
-    def ComputeBandEnergy(self):
-        self.SprBandEnergy = 0.0
-        self.PotBandEnergy = 0.0
-        self.TotBandEnergy = 0.0
-        xyz = self.get_cartesian_all(endpts=True)
+    def band_energy_components(self, k_energies=None):
+        """
+        Compute spring, potential, and total band energies at the current geometry.
+
+        Parameters
+        ----------
+        k_energies : array-like or None
+            Image energies used only to choose energy-weighted spring constants.
+            If None, use the current Structure energies (normal EW-NEB update).
+            Pass the previous chain's energies to freeze k for step-quality checks
+            so DeltaE is consistent with the quadratic model / expect (fixed k).
+
+        Returns
+        -------
+        spr, pot, tot : float
+            Spring, potential, and total band energies in a.u.
+        """
+        pot = 0.0
+        spr = 0.0
         energies = np.array([self.Structures[n].energy for n in range(len(self))])
-        Emax = float(np.max(energies))
-        Emin = float(np.min(energies))
+        if k_energies is None:
+            k_src = energies
+        else:
+            k_src = np.asarray(k_energies, dtype=float)
+            if k_src.shape != energies.shape:
+                raise ValueError(
+                    "k_energies length %s does not match chain length %s"
+                    % (k_src.shape, energies.shape)
+                )
+        Emax = float(np.max(k_src))
+        Emin = float(np.min(k_src))
 
         for n in range(1, len(self) - 1):
             cc_next = self.Structures[n + 1].cartesians
@@ -1120,10 +1143,10 @@ class ElasticBand(Chain):
             # (must match Force: forward spring uses k_next, backward uses k_curr)
             if self.params.ewneb:
                 if n == 1:
-                    k_curr = self.energy_weighted_k(energies[n], Emax, Emin)
+                    k_curr = self.energy_weighted_k(k_src[n], Emax, Emin)
                 else:
                     k_curr = k_next
-                k_next = self.energy_weighted_k(energies[n + 1], Emax, Emin)
+                k_next = self.energy_weighted_k(k_src[n + 1], Emax, Emin)
             else:
                 k_curr, k_next = self.k, self.k
             # The spring constant connecting each pair of images
@@ -1132,10 +1155,15 @@ class ElasticBand(Chain):
             # doubled for non-end springs
             fplus = 0.5 if n == (len(self) - 2) else 0.25
             fminus = 0.5 if n == 1 else 0.25
-            self.SprBandEnergy += fplus * k_next * ndrplus**2
-            self.SprBandEnergy += fminus * k_curr * ndrminus**2
-            self.PotBandEnergy += self.Structures[n].energy
-        self.TotBandEnergy = self.SprBandEnergy + self.PotBandEnergy
+            spr += fplus * k_next * ndrplus**2
+            spr += fminus * k_curr * ndrminus**2
+            pot += energies[n]
+        return spr, pot, spr + pot
+
+    def ComputeBandEnergy(self, k_energies=None):
+        self.SprBandEnergy, self.PotBandEnergy, self.TotBandEnergy = self.band_energy_components(
+            k_energies=k_energies
+        )
 
     def ComputeProjectedGrad(self):
         # HP 5/3/2023: ComputeProjectedGrad_IC was deleted
@@ -1457,11 +1485,28 @@ def updatehessian(old_chain, chain, HP, HW, Y, old_Y, GW, old_GW, GP, old_GP, La
     return chain, Y, GW, GP, HP, HW, old_Y, old_GP, old_GW
 
 
+def band_energy_delta(old_chain, new_chain):
+    """
+    Band energy change for trust-radius / step-quality assessment.
+
+    For standard NEB this is TotBandEnergy(new) - TotBandEnergy(old).
+    For energy-weighted NEB, spring constants for the *new* geometry are taken from
+    the *old* chain's image energies (frozen k), matching the fixed-k model used to
+    compute expect. Potential energy always uses the new geometry.
+    """
+    if getattr(old_chain.params, "ewneb", False):
+        k_energies = np.array([s.energy for s in old_chain.Structures])
+        _, _, new_tot = new_chain.band_energy_components(k_energies=k_energies)
+        return new_tot - old_chain.TotBandEnergy
+    return new_chain.TotBandEnergy - old_chain.TotBandEnergy
+
+
 def qualitycheck(old_chain, new_chain, trust, Quality, ThreLQ, ThreRJ, ThreHQ, Y, GW, GP, old_Y, old_GW, old_GP, params_tmax):
     """
     This function checks quality of the step and rejects (decreases stepsize) a step with poor quality.
     """
-    rejectOk = trust > ThreRJ and new_chain.TotBandEnergy - old_chain.TotBandEnergy
+    dE = band_energy_delta(old_chain, new_chain)
+    rejectOk = trust > ThreRJ and dE
     if Quality <= ThreLQ:
         # For bad steps, the trust radius is reduced
         trust = max(
@@ -1532,7 +1577,8 @@ def compare(old_chain, new_chain, ThreHQ, ThreLQ, old_GW, HW, HP, respaced, optC
         c_hist = [new_chain]
         return (new_chain, Y, GW, GP, HW, HP, c_hist, Quality)
 
-    dE = new_chain.TotBandEnergy - old_chain.TotBandEnergy
+    # EW-NEB: freeze previous-step k when forming DeltaE vs expect
+    dE = band_energy_delta(old_chain, new_chain)
     if dE > 0.0 and expect > 0.0 and dE > expect:
         Quality = (2 * expect - dE) / expect
     else:
